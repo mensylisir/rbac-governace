@@ -1,0 +1,11 @@
+FROM alpine:3.22
+RUN adduser -D -H -u 10001 app
+WORKDIR /app
+COPY bin/rbac-manager /app/rbac-manager
+COPY web/dist /app/web/dist
+USER app
+EXPOSE 8080
+ENV ADDR=:8080
+ENV FRONTEND_DIST=/app/web/dist
+CMD ["/app/rbac-manager"]
+

@@ -1,0 +1,1503 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+
+type Cluster = { id: string; name: string; context: string; apiServer: string; status: string; message: string; rbacManagerStatus: string; lastScanAt?: string }
+type Finding = { id: string; severity: 'high' | 'medium' | 'low'; title: string; description: string; resource: string; ruleId: string }
+type Tool = { id: string; clusterId: string; type: string; name: string; namespace: string; kind: string; serviceAccount: string; labels?: Record<string, string>; findings: Finding[]; recommendedTemplateIds: string[] }
+type Template = { id: string; tool: string; name: string; description: string; scope: string; riskLevel: 'high' | 'medium' | 'low'; builtin: boolean; params: Array<{ name: string; label: string; required: boolean; default?: string; description?: string }>; resources: Array<{ kind: string; template: string }> }
+type ValidationCheck = { allowed: boolean; namespace: string; verb: string; group: string; resource: string; name?: string; reason?: string; serviceAccount: string }
+type ResourceSnapshot = { apiVersion: string; kind: string; namespace?: string; name: string; yaml?: string; exists: boolean }
+type Plan = { id: string; clusterId: string; toolId: string; templateId: string; yaml: string; warnings: string[]; cleanup?: ResourceSnapshot[]; status: string; validation?: ValidationCheck[]; rollback?: ResourceSnapshot[]; createdAt: string; result: string }
+type AuditEvent = { id: string; action: string; clusterId: string; status: string; message: string; createdAt: string }
+type Tenant = { id: string; name: string; clusterIds: string[]; namespaces: string[] }
+type User = { id: string; name: string; role: string; tenantIds: string[] }
+type Me = { id: string; name: string; role: string; tenants: Tenant[] }
+type ToolProfile = { id: string; type: string; name: string; matchText: string; recommendedTemplateIds: string[]; builtin: boolean }
+type TenantCredential = { clusterId: string; namespace: string; serviceAccount: string; expirationSeconds: number; expiresAt?: string; token?: string; kubeconfig?: string }
+type Lang = 'zh' | 'en'
+
+const messages = {
+  en: {
+    brand: 'RBAC Governance',
+    views: { clusters: 'Clusters', tools: 'Tools', tenants: 'Tenants', templates: 'Templates', plans: 'Plans', audit: 'Audit' },
+    subtitles: {
+      clusters: 'Import clusters, test connectivity, and run permission scans.',
+      tools: 'Inspect detected tools, ServiceAccounts, and risky Kubernetes RBAC findings.',
+      tenants: 'Create tenant sync ServiceAccounts, AppProjects, and namespace bindings separately from tool control-plane permissions.',
+      templates: 'Review built-in permission templates. Built-ins are versioned with the codebase.',
+      plans: 'Review generated change plans and apply them to clusters after confirmation.',
+      audit: 'Trace cluster imports, scans, plan creation, apply operations, and rollbacks.',
+    },
+    refresh: 'Refresh',
+    currentUser: 'Current user',
+    user: 'User',
+    role: 'Role',
+    tenantName: 'Tenant name',
+    tenantScope: 'Tenant scope',
+    tenantClusters: 'Clusters',
+    tenantNamespaces: 'Namespaces',
+    tenantUsers: 'Users',
+    createTenant: 'Create tenant',
+    createUser: 'Create user',
+    tenantGovernance: 'Tenant governance',
+    tenantGovernanceHelp: 'Use this page after the Argo CD control-plane baseline. It creates tenant ServiceAccounts and AppProjects explicitly; nothing is created by default for a new Argo CD.',
+    tenantTemplate: 'Tenant template',
+    tenantServiceAccount: 'Tenant sync SA',
+    namespacePattern: 'Namespace pattern',
+    tenantLabelKey: 'Namespace label key',
+    tenantLabelValue: 'Namespace label value',
+    sourceRepo: 'Allowed source repository',
+    explicitTenantRequired: 'Select a tenant template and fill tenant, SA, and namespace scope explicitly.',
+    tenantControllerHint: 'The Argo CD namespace and controller SA are detected from the scanned application-controller workload.',
+    clusterOverview: 'Cluster overview',
+    importCluster: 'Import cluster',
+    name: 'Name',
+    kubeconfig: 'Kubeconfig',
+    importAndTest: 'Import and test',
+    useInCluster: 'Use current in-cluster',
+    knownClusters: 'Known clusters',
+    context: 'Context',
+    apiServer: 'API Server',
+    lastScan: 'Last scan',
+    message: 'Message',
+    openTools: 'Open tools',
+    test: 'Test',
+    scan: 'Scan',
+    clusterCount: 'clusters',
+    countSuffix: '',
+    noClusters: 'No clusters imported yet.',
+    cluster: 'Cluster',
+    scanSelected: 'Scan selected cluster',
+    detectedTools: 'Detected tools',
+    namespace: 'Namespace',
+    kind: 'Kind',
+    serviceAccount: 'ServiceAccount',
+    govern: 'Govern',
+    noTools: 'No tools found. Run a scan first.',
+    showAllTools: 'Show all components',
+    hiddenTools: 'low-risk components hidden',
+    registerTool: 'Register tool profile',
+    addTool: 'Add tool',
+    close: 'Close',
+    preview: 'Preview',
+    resources: 'Resources',
+    toolRegistry: 'Tool registry',
+    toolRegistryHelp: 'Register new tool signatures here. Scans will use them to classify workloads in any namespace.',
+    matchText: 'Match text',
+    recommendedTemplates: 'Recommended template IDs',
+    governanceAction: 'Governance action',
+    tool: 'Tool',
+    template: 'Template',
+    targetNamespace: 'Target namespace',
+    targetServiceAccount: 'Target ServiceAccount',
+    templateParameters: 'Template parameters',
+    previewYaml: 'Preview YAML',
+    createPlan: 'Create plan',
+    warning: 'Warning',
+    currentPermissionCheck: 'Current permission check',
+    proposedYaml: 'Proposed YAML',
+    currentPermissionHelp: 'These checks show what the ServiceAccount can do before applying the plan.',
+    proposedYamlHelp: 'This is the new Role / ClusterRole / RBACDefinition YAML that will be applied.',
+    cleanupOldBindings: 'Clean up old risky bindings after apply',
+    cleanupOldBindingsHelp: 'Apply the scoped template first, then remove the risky RoleBinding or ClusterRoleBinding detected in this scan.',
+    cleanupBindings: 'Existing risky bindings to remove',
+    cleanupCandidates: 'Existing risky bindings detected',
+    cleanupCandidateHelp: 'These are existing risky bindings found by the latest scan. They are not new bindings. They are removed only when cleanup is enabled in the plan.',
+    noCleanupBindings: 'No risky bindings selected for cleanup.',
+    planNote: 'Current permission checks and proposed YAML are different by design. The checks show existing access; the YAML shows the change to be applied.',
+    previewPlaceholder: 'Preview output will appear here.',
+    selectTool: 'Select a tool to preview and apply a template. Argo CD tool governance only handles the control-plane baseline here.',
+    noTemplatesForTool: 'No ready-made template is available for this component.',
+    id: 'ID',
+    scope: 'Scope',
+    source: 'Source',
+    builtIn: 'built-in',
+    custom: 'custom',
+    createTemplate: 'Create custom role template',
+    templateCatalog: 'Template catalog',
+    templateCatalogHelp: 'Built-in templates are stored in the codebase and rendered only when previewing or creating a plan.',
+    builtinTemplates: 'Built-in templates',
+    customTemplates: 'Custom templates',
+    noCustomTemplates: 'No custom templates yet.',
+    templatePreviewHelp: 'Preview the template source stored in the catalog. Built-ins are read-only; create a custom template when a tool needs different permissions.',
+    customTemplateHelp: 'Use Go template placeholders such as {{ .namespace }} and {{ .serviceAccount }}. Parameters are detected automatically.',
+    noParams: 'No parameters required.',
+    requiredParam: 'required',
+    optionalParam: 'optional',
+    defaultValue: 'Default',
+    risk: 'Risk',
+    profile: 'Profile',
+    permissionProfiles: { view: 'view', deploy: 'deploy', admin: 'admin', breakglass: 'breakglass' },
+    tenantCredential: 'Tenant credential',
+    credentialHelp: 'Generate a short-lived token or kubeconfig for a tenant ServiceAccount. The secret is returned once and is not stored.',
+    credentialNamespace: 'Credential namespace',
+    credentialServiceAccount: 'Credential ServiceAccount',
+    credentialExpiration: 'Expiration seconds',
+    credentialFormat: 'Format',
+    generateCredential: 'Generate credential',
+    credentialOutput: 'Credential output',
+    credentialExpires: 'Expires at',
+    params: 'Parameters',
+    templateId: 'Template ID',
+    templateYaml: 'Template YAML resources',
+    created: 'Created',
+    result: 'Result',
+    validate: 'Validate',
+    apply: 'Apply',
+    rollback: 'Rollback',
+    noPlans: 'No plans created yet.',
+    time: 'Time',
+    action: 'Action',
+    status: 'Status',
+    allowed: 'allowed',
+    denied: 'denied',
+    error: 'Error',
+    confirmApply: 'Apply this plan to the selected cluster? Review the YAML before continuing.',
+    confirmRollback: 'Rollback this plan using the saved snapshot?',
+    severity: { high: 'high', medium: 'medium', low: 'low' },
+    statusText: { connected: 'connected', error: 'error', installed: 'installed', missing: 'missing', planned: 'planned', applied: 'applied', failed: 'failed', 'rolled-back': 'rolled back', success: 'success', unknown: 'unknown' },
+    scopeText: { namespace: 'namespace-scoped', cluster: 'cluster-scoped', mixed: 'mixed' },
+    auditAction: {
+      'tenant.create': 'tenant.create',
+      'user.create': 'user.create',
+      'cluster.import': 'cluster.import',
+      'cluster.import_in_cluster': 'cluster.import_in_cluster',
+      'cluster.auto_in_cluster': 'cluster.auto_in_cluster',
+      'cluster.test': 'cluster.test',
+      'cluster.scan': 'cluster.scan',
+      'template.create': 'template.create',
+      'tool_profile.create': 'tool_profile.create',
+      'tenant.credential.create': 'tenant.credential.create',
+      'plan.create': 'plan.create',
+      'plan.validate': 'plan.validate',
+      'plan.apply': 'plan.apply',
+      'plan.rollback': 'plan.rollback',
+    },
+    findingTitle: {
+      'cluster-admin': 'ServiceAccount is bound to cluster-admin',
+      'wildcard-rbac': 'Wildcard RBAC permission',
+      'read-only-wildcard-rbac': 'Broad read-only RBAC permission',
+      'cluster-write': 'Cluster-wide write permission',
+      'secret-read': 'Secret read access',
+      'pod-exec': 'Pod exec permission',
+      'privilege-escalation': 'Privilege escalation verb',
+      'argocd-tenant-impersonation': 'Argo CD tenant impersonation binding',
+      'no-high-risk-rbac': 'No high-risk RBAC detected',
+      'argocd-controller-cluster-admin': 'Argo CD controller has cluster-admin',
+      'argocd-sync-impersonation-disabled': 'Sync impersonation is not enabled',
+      'argocd-no-destination-serviceaccounts': 'No AppProjects use destinationServiceAccounts',
+      'argocd-version-check': 'Confirm Argo CD sync impersonation support',
+    },
+    findingDesc: {
+      'cluster-admin': 'This grants unrestricted cluster access and should be replaced by a scoped template.',
+      'wildcard-rbac': 'Wildcard verbs, resources, or API groups make the effective permission hard to audit.',
+      'read-only-wildcard-rbac': 'The binding can read a broad set of resources but does not grant write or escalation verbs.',
+      'cluster-write': 'The binding grants write permissions beyond a single namespace.',
+      'secret-read': 'The ServiceAccount can read Kubernetes Secrets. Confirm this is required.',
+      'pod-exec': 'Pod exec can be used to access workloads and mounted credentials.',
+      'privilege-escalation': 'The ServiceAccount can bind, escalate, or impersonate privileges.',
+      'argocd-tenant-impersonation': 'This is a tenant sync impersonation binding managed from the Tenants page, not a tool control-plane cleanup candidate.',
+      'no-high-risk-rbac': 'No cluster-admin, wildcard, escalation, or broad write permissions were found for this ServiceAccount.',
+      'argocd-controller-cluster-admin': 'Apply the Argo CD control-plane baseline first, then remove the old cluster-admin binding. Tenant ServiceAccounts are configured separately.',
+      'argocd-sync-impersonation-disabled': 'Set application.sync.impersonation.enabled=true in argocd-cm before using AppProject destination ServiceAccounts.',
+      'argocd-no-destination-serviceaccounts': 'No tenant AppProjects use destinationServiceAccounts yet. Configure tenant ServiceAccounts separately after the control-plane baseline.',
+      'argocd-version-check': 'Sync impersonation is documented as an alpha feature since Argo CD 2.13. Verify this cluster version before applying the impersonation plan.',
+    },
+    warningText: {
+      highRiskTemplate: 'This is a high-risk template. Review every generated resource before applying.',
+      cleanupBindings: 'This plan will remove existing risky RBAC bindings after the new scoped permissions are applied.',
+    },
+  },
+  zh: {
+    brand: 'RBAC 权限治理',
+    views: { clusters: '集群', tools: '工具', tenants: '租户', templates: '模板', plans: '计划', audit: '审计' },
+    subtitles: {
+      clusters: '导入集群、测试连通性，并执行权限扫描。',
+      tools: '查看已发现工具、ServiceAccount 和高风险 Kubernetes RBAC。',
+      tenants: '单独创建租户同步 ServiceAccount、AppProject 和命名空间权限绑定，不混在工具控制面权限里。',
+      templates: '查看内置权限模板。内置模板随代码版本发布。',
+      plans: '确认变更计划后再应用到目标集群。',
+      audit: '追踪集群导入、扫描、计划创建、应用和回滚操作。',
+    },
+    refresh: '刷新',
+    currentUser: '当前用户',
+    user: '用户',
+    role: '角色',
+    tenantName: '租户名称',
+    tenantScope: '租户范围',
+    tenantClusters: '集群',
+    tenantNamespaces: '命名空间',
+    tenantUsers: '用户',
+    createTenant: '创建租户',
+    createUser: '创建用户',
+    tenantGovernance: '租户治理',
+    tenantGovernanceHelp: '该页面在 Argo CD 控制面基线完成后使用。租户 ServiceAccount 和 AppProject 必须显式创建，全新 Argo CD 不会默认创建 team-a。',
+    tenantTemplate: '租户模板',
+    tenantServiceAccount: '租户同步 SA',
+    namespacePattern: '命名空间模式',
+    tenantLabelKey: '命名空间标签键',
+    tenantLabelValue: '命名空间标签值',
+    sourceRepo: '允许的 Git 仓库',
+    explicitTenantRequired: '请选择租户模板，并显式填写租户、SA 和命名空间范围。',
+    tenantControllerHint: 'Argo CD 命名空间和 controller SA 会从扫描到的 application-controller 工作负载自动获取。',
+    clusterOverview: '集群概览',
+    importCluster: '导入集群',
+    name: '名称',
+    kubeconfig: 'Kubeconfig',
+    importAndTest: '导入并测试',
+    useInCluster: '接入当前集群',
+    knownClusters: '已接入集群',
+    context: '上下文',
+    apiServer: 'API Server',
+    lastScan: '最近扫描',
+    message: '消息',
+    openTools: '打开工具',
+    test: '测试',
+    scan: '扫描',
+    clusterCount: '个集群',
+    countSuffix: '个',
+    noClusters: '还没有导入集群。',
+    cluster: '集群',
+    scanSelected: '扫描当前集群',
+    detectedTools: '已发现工具',
+    namespace: '命名空间',
+    kind: '类型',
+    serviceAccount: 'ServiceAccount',
+    govern: '治理',
+    noTools: '还没有发现工具，请先扫描。',
+    showAllTools: '显示全部组件',
+    hiddenTools: '个低风险组件已隐藏',
+    registerTool: '注册工具识别规则',
+    addTool: '新增工具',
+    close: '关闭',
+    preview: '预览',
+    resources: '资源',
+    toolRegistry: '工具识别库',
+    toolRegistryHelp: '在这里注册新工具的识别规则。扫描时会用这些规则识别任意命名空间里的工作负载。',
+    matchText: '匹配文本',
+    recommendedTemplates: '推荐模板 ID',
+    governanceAction: '治理操作',
+    tool: '工具',
+    template: '模板',
+    targetNamespace: '目标命名空间',
+    targetServiceAccount: '目标 ServiceAccount',
+    templateParameters: '模板参数',
+    previewYaml: '预览 YAML',
+    createPlan: '创建计划',
+    warning: '警告',
+    currentPermissionCheck: '当前权限校验',
+    proposedYaml: '拟应用 YAML',
+    currentPermissionHelp: '这里显示的是应用计划之前，该 ServiceAccount 当前是否已经具备这些操作权限。',
+    proposedYamlHelp: '这里是准备写入集群的新 Role / ClusterRole / RBACDefinition YAML。',
+    cleanupOldBindings: '应用后清理旧宽权限绑定',
+    cleanupOldBindingsHelp: '先应用新的有限权限模板，再删除本次扫描发现的高风险 RoleBinding 或 ClusterRoleBinding。',
+    cleanupBindings: '将删除的旧风险绑定',
+    cleanupCandidates: '检测到的旧风险绑定',
+    cleanupCandidateHelp: '这些是最近一次扫描发现的已有高风险绑定，不是即将新增的绑定。只有在计划中启用清理时才会删除。',
+    noCleanupBindings: '没有选择要清理的高风险绑定。',
+    planNote: '当前权限校验和拟应用 YAML 是两件事。前者看现状，后者看变更内容。',
+    previewPlaceholder: '预览结果会显示在这里。',
+    selectTool: '选择一个工具后预览并应用模板。Argo CD 工具治理这里只处理控制面基线，不会默认创建租户。',
+    noTemplatesForTool: '这个组件目前没有预置模板。',
+    id: 'ID',
+    scope: '范围',
+    source: '来源',
+    builtIn: '内置',
+    custom: '自定义',
+    createTemplate: '创建自定义角色模板',
+    templateCatalog: '模板目录',
+    templateCatalogHelp: '内置模板保存在代码库里，只在预览或创建计划时渲染。',
+    builtinTemplates: '内置模板',
+    customTemplates: '自定义模板',
+    noCustomTemplates: '还没有自定义模板。',
+    templatePreviewHelp: '预览模板库中保存的模板源码。内置模板只读；如果新工具需要不同权限，请创建自定义模板。',
+    customTemplateHelp: '可以使用 Go 模板占位符，例如 {{ .namespace }} 和 {{ .serviceAccount }}。参数会从 YAML 中自动识别。',
+    noParams: '不需要参数。',
+    requiredParam: '必填',
+    optionalParam: '可选',
+    defaultValue: '默认值',
+    risk: '风险',
+    profile: '档位',
+    permissionProfiles: { view: '查看', deploy: '部署', admin: '管理', breakglass: '临时高危' },
+    tenantCredential: '租户凭证',
+    credentialHelp: '为租户 ServiceAccount 生成短期 token 或 kubeconfig。密钥只返回一次，不会落库。',
+    credentialNamespace: '凭证命名空间',
+    credentialServiceAccount: '凭证 ServiceAccount',
+    credentialExpiration: '有效期秒数',
+    credentialFormat: '格式',
+    generateCredential: '生成凭证',
+    credentialOutput: '凭证输出',
+    credentialExpires: '过期时间',
+    params: '参数',
+    templateId: '模板 ID',
+    templateYaml: '模板 YAML 资源',
+    created: '创建时间',
+    result: '结果',
+    validate: '校验',
+    apply: '应用',
+    rollback: '回滚',
+    noPlans: '还没有创建计划。',
+    time: '时间',
+    action: '动作',
+    status: '状态',
+    allowed: '允许',
+    denied: '拒绝',
+    error: '错误',
+    confirmApply: '确认要把这个计划应用到目标集群吗？请先检查 YAML。',
+    confirmRollback: '确认使用保存的快照回滚这个计划吗？',
+    severity: { high: '高危', medium: '中危', low: '低危' },
+    statusText: { connected: '已连接', error: '异常', installed: '已安装', missing: '未安装', planned: '已创建', applied: '已应用', failed: '失败', 'rolled-back': '已回滚', success: '成功', unknown: '未知' },
+    scopeText: { namespace: '命名空间级', cluster: '集群级', mixed: '混合范围' },
+    auditAction: {
+      'tenant.create': '创建租户',
+      'user.create': '创建用户',
+      'cluster.import': '导入集群',
+      'cluster.import_in_cluster': '接入集群内环境',
+      'cluster.auto_in_cluster': '自动识别集群内环境',
+      'cluster.test': '测试集群',
+      'cluster.scan': '扫描集群',
+      'template.create': '创建模板',
+      'tool_profile.create': '创建工具识别规则',
+      'tenant.credential.create': '生成租户凭证',
+      'plan.create': '创建计划',
+      'plan.validate': '校验计划',
+      'plan.apply': '应用计划',
+      'plan.rollback': '回滚计划',
+    },
+    findingTitle: {
+      'cluster-admin': 'ServiceAccount 绑定了 cluster-admin',
+      'wildcard-rbac': '存在通配符 RBAC 权限',
+      'read-only-wildcard-rbac': '存在宽泛只读 RBAC 权限',
+      'cluster-write': '存在集群范围写权限',
+      'secret-read': '可读取 Secret',
+      'pod-exec': '具备 Pod exec 权限',
+      'privilege-escalation': '存在提权类权限',
+      'argocd-tenant-impersonation': 'Argo CD 租户冒充绑定',
+      'no-high-risk-rbac': '未发现高风险 RBAC',
+      'argocd-controller-cluster-admin': 'Argo CD controller 拥有 cluster-admin',
+      'argocd-sync-impersonation-disabled': '未开启同步冒充',
+      'argocd-no-destination-serviceaccounts': 'AppProject 未配置 destinationServiceAccounts',
+      'argocd-version-check': '需要确认 Argo CD 同步冒充版本支持',
+    },
+    findingDesc: {
+      'cluster-admin': '该权限拥有集群无限制访问能力，应替换为更小范围的模板。',
+      'wildcard-rbac': '通配符 verbs、resources 或 apiGroups 会让有效权限难以审计。',
+      'read-only-wildcard-rbac': '该绑定可以读取较大范围的资源，但不包含写入或提权动词。',
+      'cluster-write': '该绑定授予了超过单命名空间范围的写权限。',
+      'secret-read': '该 ServiceAccount 可以读取 Kubernetes Secret，请确认确实需要。',
+      'pod-exec': 'Pod exec 可能被用于访问工作负载进程和挂载凭据。',
+      'privilege-escalation': '该 ServiceAccount 可以 bind、escalate 或 impersonate 权限。',
+      'argocd-tenant-impersonation': '这是租户同步冒充绑定，由租户页管理，不属于工具控制面清理候选。',
+      'no-high-risk-rbac': '没有发现 cluster-admin、通配符、提权或宽泛写权限。',
+      'argocd-controller-cluster-admin': '应先应用 Argo CD 控制面基线，再移除旧 cluster-admin 绑定。租户 ServiceAccount 需要单独配置。',
+      'argocd-sync-impersonation-disabled': '使用 AppProject destinationServiceAccounts 前，需要在 argocd-cm 设置 application.sync.impersonation.enabled=true。',
+      'argocd-no-destination-serviceaccounts': '还没有租户 AppProject 使用 destinationServiceAccounts。请在控制面基线完成后单独配置租户 ServiceAccount。',
+      'argocd-version-check': '同步冒充从 Argo CD 2.13 起作为 alpha 特性记录，应用前需要确认版本支持。',
+    },
+    warningText: {
+      highRiskTemplate: '这是高风险模板，应用前请逐项检查生成的资源。',
+      cleanupBindings: '该计划会在有限权限应用成功后删除已有的高风险 RBAC 绑定。',
+    },
+  },
+} as const
+
+const views = ['clusters', 'tools', 'tenants', 'templates', 'plans', 'audit'] as const
+type View = (typeof views)[number]
+
+const state = reactive({
+  view: 'clusters' as View,
+  lang: (localStorage.getItem('lang') === 'en' ? 'en' : 'zh') as Lang,
+  clusters: [] as Cluster[],
+  tools: [] as Tool[],
+  templates: [] as Template[],
+  plans: [] as Plan[],
+  audit: [] as AuditEvent[],
+  me: null as Me | null,
+  tenants: [] as Tenant[],
+  selectedClusterId: '',
+  selectedToolId: '',
+  selectedTemplateId: '',
+  previewTemplateId: '',
+  selectedTenantTemplateId: '',
+  showToolModal: false,
+  showTemplateModal: false,
+  showTenantModal: false,
+  showTemplatePreview: false,
+  showAllTools: false,
+  cleanupOldBindings: false,
+  renderedYaml: '',
+  tenantCredentialOutput: '',
+  tenantCredentialExpiresAt: '',
+  warnings: [] as string[],
+  error: '',
+  newTenantName: '',
+  newTenantClusters: '*',
+  newTenantNamespaces: '*',
+  newUserName: '',
+  newUserRole: 'tenant-admin',
+  newUserTenantIds: 'platform',
+  credentialNamespace: '',
+  credentialServiceAccount: '',
+  credentialExpiration: 28800,
+  credentialFormat: 'kubeconfig',
+  toolProfile: { type: '', name: '', matchText: '', recommendedTemplateIds: '' },
+  customTemplate: { id: '', tool: 'custom', name: '', description: '', scope: 'namespace', riskLevel: 'medium', yaml: '' },
+})
+
+const importForm = reactive({ name: '', kubeconfig: '' })
+const params = reactive<Record<string, string>>({
+  namespace: '',
+  controllerServiceAccount: '',
+  serviceAccount: '',
+  targetNamespace: '',
+  targetServiceAccount: '',
+  tenant: '',
+  namespacePattern: '',
+  tenantLabelKey: '',
+  tenantLabelValue: '',
+  sourceRepo: '',
+})
+const busy = ref(false)
+const t = computed(() => messages[state.lang])
+const title = computed(() => t.value.views[state.view])
+const subtitle = computed(() => t.value.subtitles[state.view])
+const visibleTools = computed(() => state.showAllTools ? state.tools : state.tools.filter((tool) => isActionableTool(tool)))
+const hiddenToolCount = computed(() => state.tools.length - visibleTools.value.length)
+const currentTool = computed(() => state.tools.find((tool) => tool.id === state.selectedToolId) || visibleTools.value[0] || state.tools[0] || null)
+const argoControllerTool = computed(() => state.tools.find((tool) => isArgoControllerTool(tool)) || null)
+const candidateTemplates = computed(() => {
+  const tool = currentTool.value
+  if (!tool) return []
+  const recommended = new Set(tool.recommendedTemplateIds)
+  if (tool.type === 'argocd') {
+    return state.templates.filter((template) => recommended.has(template.id))
+  }
+  return state.templates.filter((template) => template.tool === tool.type || recommended.has(template.id))
+})
+const hasToolTemplate = computed(() => candidateTemplates.value.length > 0)
+const tenantTemplates = computed(() => state.templates.filter((template) => template.id === 'argocd-tenant-sync-project' || template.id === 'argocd-tenant-dynamic-namespaces'))
+const selectedTemplate = computed(() => state.templates.find((template) => template.id === state.selectedTemplateId) || null)
+const selectedTemplateParams = computed(() => selectedTemplate.value?.params || [])
+const canAdmin = computed(() => state.me?.role === 'platform-admin')
+const scopeText = computed(() => t.value.scopeText as Record<string, string>)
+const countSuffix = computed(() => t.value.countSuffix || '')
+const previewTemplateObject = computed(() => state.templates.find((template) => template.id === state.previewTemplateId) || null)
+const builtinTemplates = computed(() => state.templates.filter((template) => template.builtin))
+const customTemplates = computed(() => state.templates.filter((template) => !template.builtin))
+
+function switchLang(lang: Lang) {
+  state.lang = lang
+  localStorage.setItem('lang', lang)
+}
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || response.statusText)
+  return body as T
+}
+
+async function refresh() {
+  state.error = ''
+  try {
+    state.me = await api<Me>('/api/me')
+    if (canAdmin.value) state.tenants = await api<Tenant[]>('/api/tenants')
+    const [clusters, templates, plans, audit] = await Promise.all([
+      api<Cluster[]>('/api/clusters'),
+      api<Template[]>('/api/templates'),
+      api<Plan[]>('/api/plans'),
+      api<AuditEvent[]>('/api/audit-events'),
+    ])
+    state.clusters = clusters
+    state.templates = templates
+    state.plans = plans
+    state.audit = audit
+    if (!state.selectedClusterId && clusters[0]) state.selectedClusterId = clusters[0].id
+    if (state.selectedClusterId) state.tools = await api<Tool[]>(`/api/clusters/${state.selectedClusterId}/tools`)
+  } catch (error) {
+    setError(error)
+  }
+}
+
+async function importCluster() {
+  await run(async () => {
+    const cluster = await api<Cluster>('/api/clusters/import', { method: 'POST', body: JSON.stringify(importForm) })
+    state.selectedClusterId = cluster.id
+    importForm.kubeconfig = ''
+    await refresh()
+  })
+}
+
+async function importInCluster() {
+  await run(async () => {
+    const cluster = await api<Cluster>('/api/clusters/in-cluster', { method: 'POST', body: JSON.stringify({ name: 'in-cluster' }) })
+    state.selectedClusterId = cluster.id
+    await refresh()
+  })
+}
+
+async function testCluster(id: string) {
+  await run(async () => { await api<Cluster>(`/api/clusters/${id}/test`, { method: 'POST' }); await refresh() })
+}
+
+async function scanCluster(id: string) {
+  await run(async () => {
+    state.selectedClusterId = id
+    state.tools = await api<Tool[]>(`/api/clusters/${id}/scan`, { method: 'POST' })
+    await refresh()
+    state.view = 'tools'
+  })
+}
+
+async function onClusterChange() {
+  if (state.selectedClusterId) state.tools = await api<Tool[]>(`/api/clusters/${state.selectedClusterId}/tools`)
+}
+
+function governTool(tool: Tool) {
+  state.selectedToolId = tool.id
+  state.selectedTemplateId = tool.recommendedTemplateIds[0] || candidateTemplates.value[0]?.id || ''
+  seedTemplateParams(tool)
+  applyTemplateDefaults()
+  state.cleanupOldBindings = tool.type !== 'argocd' && hasCleanupCandidate(tool)
+  state.renderedYaml = ''
+  state.warnings = []
+}
+
+function isActionableTool(tool: Tool) {
+  return tool.recommendedTemplateIds.length > 0 || maxSeverity(tool.findings) !== 'low' || isArgoControllerTool(tool)
+}
+
+function seedTemplateParams(tool: Tool) {
+  for (const key of Object.keys(params)) params[key] = ''
+  params.namespace = tool.namespace
+  params.controllerServiceAccount = tool.serviceAccount
+  params.serviceAccount = tool.type === 'argocd' ? `${tenantName(tool)}-deployer` : tool.serviceAccount
+  params.targetNamespace = tool.namespace
+  params.targetServiceAccount = tool.serviceAccount
+  params.tenant = tenantName(tool)
+  params.namespacePattern = `${params.tenant}-*`
+  params.tenantLabelKey = 'tenant'
+  params.tenantLabelValue = params.tenant
+  params.sourceRepo = '*'
+  if (tool.type === 'argocd') {
+    params.namespace = tool.namespace || 'argocd'
+    params.targetNamespace = ''
+    params.serviceAccount = ''
+    params.tenant = ''
+    params.namespacePattern = ''
+    params.tenantLabelValue = ''
+  }
+}
+
+function tenantName(tool: Tool) {
+  if (tool.namespace && !['argocd', 'kube-system', 'monitoring', 'logging', 'logs', 'ci'].includes(tool.namespace)) return tool.namespace
+  return 'team-a'
+}
+
+function applyTemplateDefaults() {
+  for (const param of selectedTemplateParams.value) {
+    if (!params[param.name] && param.default) params[param.name] = param.default
+  }
+}
+
+async function previewTemplate() {
+  await run(async () => {
+    if (!state.selectedTemplateId) throw new Error(t.value.noTemplatesForTool)
+    const result = await api<{ yaml: string; warnings: string[] }>('/api/templates/render', { method: 'POST', body: JSON.stringify(templateRequest()) })
+    state.renderedYaml = result.yaml
+    state.warnings = result.warnings || []
+  })
+}
+
+async function createPlan() {
+  await run(async () => {
+    if (!state.selectedTemplateId) throw new Error(t.value.noTemplatesForTool)
+    const plan = await api<Plan>('/api/plans', { method: 'POST', body: JSON.stringify(templateRequest()) })
+    state.renderedYaml = plan.yaml
+    state.warnings = plan.warnings || []
+    await refresh()
+    state.view = 'plans'
+  })
+}
+
+async function previewTenantPlan() {
+  await run(async () => {
+    const result = await api<{ yaml: string; warnings: string[] }>('/api/templates/render', { method: 'POST', body: JSON.stringify(tenantTemplateRequest()) })
+    state.renderedYaml = result.yaml
+    state.warnings = result.warnings || []
+  })
+}
+
+async function createTenantPlan() {
+  await run(async () => {
+    const plan = await api<Plan>('/api/plans', { method: 'POST', body: JSON.stringify(tenantTemplateRequest()) })
+    state.renderedYaml = plan.yaml
+    state.warnings = plan.warnings || []
+    await refresh()
+    state.view = 'plans'
+  })
+}
+
+async function createTenantCredential() {
+  await run(async () => {
+    const result = await api<TenantCredential>('/api/tenants/credentials', {
+      method: 'POST',
+      body: JSON.stringify({
+        clusterId: state.selectedClusterId,
+        namespace: state.credentialNamespace,
+        serviceAccount: state.credentialServiceAccount,
+        expirationSeconds: Number(state.credentialExpiration) || 28800,
+        format: state.credentialFormat,
+      }),
+    })
+    state.tenantCredentialOutput = result.kubeconfig || result.token || ''
+    state.tenantCredentialExpiresAt = result.expiresAt || ''
+    await refresh()
+  })
+}
+
+async function validatePlan(plan: Plan) {
+  await run(async () => { await api<Plan>(`/api/plans/${plan.id}/validate`, { method: 'POST' }); await refresh() })
+}
+
+async function applyPlan(plan: Plan) {
+  if (!window.confirm(t.value.confirmApply)) return
+  await run(async () => {
+    await api<Plan>(`/api/plans/${plan.id}/apply`, { method: 'POST' })
+    if (state.selectedClusterId) {
+      state.tools = await api<Tool[]>(`/api/clusters/${state.selectedClusterId}/scan`, { method: 'POST' })
+    }
+    await refresh()
+  })
+}
+
+async function rollbackPlan(plan: Plan) {
+  if (!window.confirm(t.value.confirmRollback)) return
+  await run(async () => { await api<Plan>(`/api/plans/${plan.id}/rollback`, { method: 'POST' }); await refresh() })
+}
+
+async function createTenant() {
+  await run(async () => {
+    await api<Tenant>('/api/tenants', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: state.newTenantName,
+        clusterIds: state.newTenantClusters.split(',').map((x) => x.trim()).filter(Boolean),
+        namespaces: state.newTenantNamespaces.split(',').map((x) => x.trim()).filter(Boolean),
+      }),
+    })
+    state.newTenantName = ''
+    state.newTenantClusters = '*'
+    state.newTenantNamespaces = '*'
+    await refresh()
+  })
+}
+
+async function createUser() {
+  await run(async () => {
+    await api<User>('/api/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: state.newUserName,
+        role: state.newUserRole,
+        tenantIds: state.newUserTenantIds.split(',').map((x) => x.trim()).filter(Boolean),
+      }),
+    })
+    state.newUserName = ''
+    state.newUserRole = 'tenant-admin'
+    state.newUserTenantIds = 'platform'
+    await refresh()
+  })
+}
+
+async function createToolProfile() {
+  await run(async () => {
+    await api<ToolProfile>('/api/tool-profiles', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: state.toolProfile.type,
+        name: state.toolProfile.name,
+        matchText: state.toolProfile.matchText,
+        recommendedTemplateIds: state.toolProfile.recommendedTemplateIds.split(',').map((x) => x.trim()).filter(Boolean),
+      }),
+    })
+    state.toolProfile = { type: '', name: '', matchText: '', recommendedTemplateIds: '' }
+    state.showToolModal = false
+    await refresh()
+  })
+}
+
+async function createCustomTemplate() {
+  await run(async () => {
+    const inferredParams = inferTemplateParams(state.customTemplate.yaml)
+    await api<Template>('/api/templates', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: state.customTemplate.id,
+        tool: state.customTemplate.tool,
+        name: state.customTemplate.name,
+        description: state.customTemplate.description,
+        scope: state.customTemplate.scope,
+        riskLevel: state.customTemplate.riskLevel,
+        builtin: false,
+        params: inferredParams,
+        resources: [{ kind: 'Custom', template: state.customTemplate.yaml }],
+      }),
+    })
+    state.customTemplate = { id: '', tool: 'custom', name: '', description: '', scope: 'namespace', riskLevel: 'medium', yaml: '' }
+    state.showTemplateModal = false
+    await refresh()
+  })
+}
+
+function chooseTenantTemplate(templateId: string) {
+  state.selectedTenantTemplateId = templateId
+  const template = state.templates.find((item) => item.id === templateId)
+  if (!template) return
+  for (const key of Object.keys(params)) params[key] = ''
+  params.namespace = argoControllerTool.value?.namespace || ''
+  params.controllerServiceAccount = argoControllerTool.value?.serviceAccount || ''
+  params.serviceAccount = ''
+  params.targetNamespace = ''
+  params.tenant = ''
+  params.namespacePattern = ''
+  params.tenantLabelKey = 'tenant'
+  params.tenantLabelValue = ''
+  params.sourceRepo = '*'
+  state.selectedTemplateId = template.id
+  applyTemplateDefaults()
+}
+
+function inferTemplateParams(yaml: string) {
+  const names = new Set<string>()
+  const regex = /\{\{\s*(?:dns\s+)?\.([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(yaml)) !== null) names.add(match[1])
+  if (!names.size) {
+    names.add('namespace')
+    names.add('serviceAccount')
+  }
+  return Array.from(names).sort().map((name) => ({ name, label: paramDisplayName(name), required: true }))
+}
+
+function paramDisplayName(name: string) {
+  return localizedParamLabel({ name, label: name })
+}
+
+function openTemplatePreview(template: Template) {
+  state.previewTemplateId = template.id
+  state.showTemplatePreview = true
+}
+
+function onTemplateChange() {
+  applyTemplateDefaults()
+  state.renderedYaml = ''
+  state.warnings = []
+}
+
+function templateRequest() {
+  applyTemplateDefaults()
+  return { clusterId: state.selectedClusterId, toolId: state.selectedToolId, templateId: state.selectedTemplateId, params: { ...params }, cleanup: state.cleanupOldBindings }
+}
+
+function tenantTemplateRequest() {
+  applyTemplateDefaults()
+  return {
+    clusterId: state.selectedClusterId,
+    toolId: '',
+    templateId: state.selectedTenantTemplateId || state.selectedTemplateId,
+    params: { ...params, controllerServiceAccount: params.controllerServiceAccount || argoControllerTool.value?.serviceAccount || '' },
+    cleanup: false,
+  }
+}
+
+function isArgoControllerTool(tool: Tool) {
+  const component = (tool.labels?.['app.kubernetes.io/component'] || '').toLowerCase()
+  const labelName = (tool.labels?.['app.kubernetes.io/name'] || '').toLowerCase()
+  const name = tool.name.toLowerCase()
+  return tool.type === 'argocd' && (component === 'application-controller' || name.includes('application-controller') || labelName.includes('application-controller'))
+}
+
+async function run(fn: () => Promise<unknown>) {
+  busy.value = true
+  state.error = ''
+  try { await fn() } catch (error) { setError(error) } finally { busy.value = false }
+}
+
+function setError(error: unknown) {
+  state.error = error instanceof Error ? error.message : String(error)
+}
+
+function maxSeverity(findings: Finding[]) {
+  if (findings.some((finding) => finding.severity === 'high')) return 'high'
+  if (findings.some((finding) => finding.severity === 'medium')) return 'medium'
+  return 'low'
+}
+
+function statusLabel(value?: string) {
+  if (!value) return '-'
+  return (t.value.statusText as Record<string, string>)[value] || value
+}
+
+function auditActionLabel(value: string) {
+  return (t.value.auditAction as Record<string, string>)[value] || value
+}
+
+function messageLabel(value?: string) {
+  if (!value) return '-'
+  if (state.lang === 'en') return value
+  const zhMessages: Record<string, string> = {
+    connected: '连接正常',
+    'auto-detected in-cluster connection': '已自动识别集群内连接',
+    'plan created': '计划已创建',
+    'plan validated': '计划已校验',
+    'applied successfully': '应用成功',
+    'rolled back successfully': '回滚成功',
+  }
+  if (zhMessages[value]) return zhMessages[value]
+  const discovered = value.match(/^discovered (\d+) tool instances$/)
+  if (discovered) return `发现 ${discovered[1]} 个工具实例`
+  return value
+}
+
+function warningLabel(value: string) {
+  if (state.lang === 'en') return value
+  if (value.includes('high-risk template')) return t.value.warningText.highRiskTemplate
+  if (value.includes('risky RBAC binding')) return t.value.warningText.cleanupBindings
+  return value
+}
+
+function severityLabel(value: Finding['severity']) {
+  return t.value.severity[value]
+}
+
+function findingTitle(finding: Finding) {
+  return (t.value.findingTitle as Record<string, string>)[finding.ruleId] || finding.title
+}
+
+function findingDescription(finding: Finding) {
+  return (t.value.findingDesc as Record<string, string>)[finding.ruleId] || finding.description
+}
+
+function hasCleanupCandidate(tool: Tool) {
+  return tool.findings.some((finding) => cleanupEligibleRule(finding.ruleId) && bindingResource(finding.resource))
+}
+
+function cleanupEligibleRule(ruleId: string) {
+  return ['cluster-admin', 'wildcard-rbac', 'cluster-write', 'pod-exec', 'privilege-escalation', 'argocd-controller-cluster-admin'].includes(ruleId)
+}
+
+function bindingResource(resource: string) {
+  return /^ClusterRoleBinding\/[^/]+$/.test(resource) || /^[^/]+\/RoleBinding\/[^/]+$/.test(resource)
+}
+
+function cleanupCandidates(tool: Tool | null) {
+  if (!tool) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const finding of tool.findings) {
+    if (!cleanupEligibleRule(finding.ruleId) || !bindingResource(finding.resource) || seen.has(finding.resource)) continue
+    seen.add(finding.resource)
+    out.push(finding.resource)
+  }
+  return out
+}
+
+function localizedTemplateName(template: Template) {
+  return localizedTemplateMeta(template).name
+}
+
+function localizedTemplateDescription(template: Template) {
+  return localizedTemplateMeta(template).description || template.description
+}
+
+function localizedTemplateMeta(template: Template) {
+  const meta = templateLocaleMeta[state.lang][template.id]
+  return meta || { name: template.name, description: template.description }
+}
+
+function permissionProfile(template: Template) {
+  if (template.riskLevel === 'high') return template.id.includes('breakglass') ? 'breakglass' : 'admin'
+  if (template.scope === 'cluster') return template.riskLevel === 'low' ? 'view' : 'admin'
+  if (template.id.includes('reader') || template.id.includes('read-only')) return 'view'
+  if (template.id.includes('deployer') || template.id.includes('sync')) return 'deploy'
+  return template.riskLevel === 'low' ? 'view' : 'deploy'
+}
+
+function permissionProfileLabel(template: Template) {
+  const profile = permissionProfile(template)
+  return (t.value.permissionProfiles as Record<string, string>)[profile] || profile
+}
+
+function localizedParamLabel(param: { name: string; label: string }) {
+  const labels: Record<Lang, Record<string, string>> = {
+    en: {},
+    zh: {
+      namespace: 'Argo CD 命名空间',
+      controllerServiceAccount: 'Argo CD Controller ServiceAccount',
+      serviceAccount: '租户同步 ServiceAccount',
+      targetNamespace: '租户命名空间',
+      targetServiceAccount: '目标 ServiceAccount',
+      tenant: '租户名称',
+      namespacePattern: '允许的命名空间模式',
+      tenantLabelKey: '命名空间标签键',
+      tenantLabelValue: '命名空间标签值',
+      sourceRepo: '允许的 Git 仓库',
+    },
+  }
+  return labels[state.lang][param.name] || param.label || param.name
+}
+
+const templateLocaleMeta: Record<Lang, Record<string, { name: string; description: string }>> = {
+  en: {
+    'argocd-tenant-namespace-deployer': {
+      name: 'Argo CD tenant namespace deployer',
+      description: 'Legacy single-namespace template. Prefer the tenant project template for new Argo CD tenants.',
+    },
+    'argocd-control-plane-read-only': {
+      name: 'Argo CD control-plane read-only baseline',
+      description: 'For a new Argo CD installation: grants controller read/watch only. Tenant ServiceAccounts and AppProjects are created separately from the Tenants page.',
+    },
+    'argocd-tenant-sync-project': {
+      name: 'Argo CD tenant sync project',
+      description: 'Creates a tenant ServiceAccount in the Argo CD namespace, a tenant AppProject, namespace-scoped sync RBAC, and exact controller impersonation for that tenant.',
+    },
+    'argocd-tenant-dynamic-namespaces': {
+      name: 'Argo CD tenant dynamic namespaces',
+      description: 'Uses an AppProject namespace pattern and RBAC Manager namespaceSelector to grant one tenant ServiceAccount access to labeled namespaces.',
+    },
+    'argocd-control-plane-read-impersonate': {
+      name: 'Argo CD control-plane read and impersonate',
+      description: 'Grants Argo CD read/watch permissions and impersonation of a specific tenant ServiceAccount. AppProject changes are still required.',
+    },
+    'jenkins-agent-manager': {
+      name: 'Jenkins agent manager',
+      description: 'Lets Jenkins manage build agent Pods in one namespace.',
+    },
+    'jenkins-namespace-deployer': {
+      name: 'Jenkins namespace deployer',
+      description: 'Lets Jenkins deploy common workload resources in one namespace.',
+    },
+    'prometheus-cluster-reader': {
+      name: 'Prometheus cluster reader',
+      description: 'Read-only cluster discovery for Prometheus without write permissions.',
+    },
+    'prometheus-namespace-reader': {
+      name: 'Prometheus namespace reader',
+      description: 'Namespace-scoped discovery for Prometheus.',
+    },
+    'loki-namespace-reader': {
+      name: 'Loki namespace reader',
+      description: 'Minimal namespace metadata read permissions for Loki components.',
+    },
+    'promtail-cluster-metadata-reader': {
+      name: 'Log collector metadata reader',
+      description: 'Read-only metadata discovery for Promtail, Grafana Agent, or Alloy.',
+    },
+  },
+  zh: {
+    'argocd-tenant-namespace-deployer': {
+      name: 'Argo CD 租户命名空间部署器',
+      description: '旧版单命名空间模板。新租户建议优先使用租户项目模板。',
+    },
+    'argocd-control-plane-read-only': {
+      name: 'Argo CD 控制面只读基线',
+      description: '用于全新 Argo CD：只给 controller 读/观察权限。租户 ServiceAccount 和 AppProject 请在租户页单独创建。',
+    },
+    'argocd-tenant-sync-project': {
+      name: 'Argo CD 租户同步项目',
+      description: '创建 Argo CD 命名空间下的租户同步 SA、租户 AppProject、目标命名空间同步 RBAC，以及该租户的精确 controller 冒充权限。',
+    },
+    'argocd-tenant-dynamic-namespaces': {
+      name: 'Argo CD 租户动态命名空间',
+      description: '使用 AppProject 命名空间模式和 RBAC Manager namespaceSelector，让一个租户 SA 自动获得带标签命名空间的权限。',
+    },
+    'argocd-control-plane-read-impersonate': {
+      name: 'Argo CD 控制面只读与冒充',
+      description: '授予 Argo CD 只读/观察权限，以及对指定租户 ServiceAccount 的冒充能力。仍需配合 AppProject 修改。',
+    },
+    'jenkins-agent-manager': {
+      name: 'Jenkins Agent 管理器',
+      description: '允许 Jenkins 在单个命名空间内管理构建 Agent Pod。',
+    },
+    'jenkins-namespace-deployer': {
+      name: 'Jenkins 命名空间部署器',
+      description: '允许 Jenkins 在单个命名空间内部署常见工作负载资源。',
+    },
+    'prometheus-cluster-reader': {
+      name: 'Prometheus 集群读者',
+      description: '仅提供只读的集群发现权限，不包含写权限。',
+    },
+    'prometheus-namespace-reader': {
+      name: 'Prometheus 命名空间读者',
+      description: '为 Prometheus 提供命名空间范围的发现权限。',
+    },
+    'loki-namespace-reader': {
+      name: 'Loki 命名空间读者',
+      description: '为 Loki 组件提供最小化的命名空间元数据读取权限。',
+    },
+    'promtail-cluster-metadata-reader': {
+      name: '日志采集元数据读者',
+      description: '为 Promtail、Grafana Agent 或 Alloy 提供只读元数据发现能力。',
+    },
+  },
+}
+
+function formatTime(value?: string) {
+  if (!value || value.startsWith('0001-')) return '-'
+  return new Date(value).toLocaleString()
+}
+
+onMounted(refresh)
+</script>
+
+<template>
+  <div id="app-shell">
+    <aside>
+      <div class="brand">{{ t.brand }}</div>
+      <nav>
+        <button v-for="view in views" :key="view" class="nav" :class="{ active: state.view === view }" @click="state.view = view">
+          {{ t.views[view] }}
+        </button>
+      </nav>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <h1>{{ title }}</h1>
+          <p>{{ subtitle }}</p>
+        </div>
+        <div class="row">
+          <button :class="{ primary: state.lang === 'zh' }" @click="switchLang('zh')">中文</button>
+          <button :class="{ primary: state.lang === 'en' }" @click="switchLang('en')">EN</button>
+          <button :disabled="busy" @click="refresh">{{ t.refresh }}</button>
+        </div>
+      </header>
+
+      <section v-if="state.error" class="finding high error-box"><strong>{{ t.error }}</strong><div>{{ state.error }}</div></section>
+
+      <section v-if="state.view === 'clusters' && canAdmin" class="grid" style="margin-bottom: 14px">
+        <section class="panel">
+          <h2>{{ t.currentUser }}</h2>
+          <div class="kv"><span>{{ t.user }}</span><span>{{ state.me?.name || '-' }}</span><span>{{ t.role }}</span><span>{{ state.me?.role || '-' }}</span></div>
+        </section>
+      </section>
+
+      <section v-if="state.view === 'clusters'" class="grid two">
+        <section class="panel">
+          <h2>{{ t.importCluster }}</h2>
+          <div class="stack">
+            <label>{{ t.name }} <input v-model="importForm.name" placeholder="rbac-manager-test" /></label>
+            <label>{{ t.kubeconfig }} <textarea v-model="importForm.kubeconfig" :placeholder="state.lang === 'zh' ? '粘贴 kubeconfig 内容' : 'Paste kubeconfig here'" /></label>
+            <div class="row">
+              <button class="primary" :disabled="busy" @click="importCluster">{{ t.importAndTest }}</button>
+              <button :disabled="busy" @click="importInCluster">{{ t.useInCluster }}</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>{{ t.knownClusters }}</h2>
+          <div class="grid">
+            <article v-for="cluster in state.clusters" :key="cluster.id" class="card">
+              <div class="row">
+                <div class="card-title">{{ cluster.name }}</div>
+                <span class="badge" :class="cluster.status === 'connected' ? 'success' : 'high'">{{ statusLabel(cluster.status || 'unknown') }}</span>
+                <span class="badge" :class="cluster.rbacManagerStatus === 'installed' ? 'success' : 'medium'">RBAC Manager {{ statusLabel(cluster.rbacManagerStatus || 'unknown') }}</span>
+              </div>
+              <div class="kv">
+                <span>{{ t.context }}</span><span class="mono">{{ cluster.context || '-' }}</span>
+                <span>{{ t.apiServer }}</span><span class="mono">{{ cluster.apiServer || '-' }}</span>
+                <span>{{ t.lastScan }}</span><span>{{ formatTime(cluster.lastScanAt) }}</span>
+                <span>{{ t.message }}</span><span>{{ messageLabel(cluster.message) }}</span>
+              </div>
+              <div class="row">
+                <button @click="state.selectedClusterId = cluster.id; state.view = 'tools'; onClusterChange()">{{ t.openTools }}</button>
+                <button @click="testCluster(cluster.id)">{{ t.test }}</button>
+                <button class="primary" @click="scanCluster(cluster.id)">{{ t.scan }}</button>
+              </div>
+            </article>
+            <div v-if="!state.clusters.length" class="empty">{{ t.noClusters }}</div>
+          </div>
+        </section>
+      </section>
+
+      <section v-else-if="state.view === 'tools'" class="stack">
+        <div class="toolbar">
+          <label class="cluster-picker">{{ t.cluster }}
+            <select v-model="state.selectedClusterId" @change="onClusterChange">
+              <option v-for="cluster in state.clusters" :key="cluster.id" :value="cluster.id">{{ cluster.name }}</option>
+            </select>
+          </label>
+          <div class="toolbar-actions">
+            <button v-if="canAdmin" @click="state.showToolModal = true">{{ t.addTool }}</button>
+            <button class="primary" :disabled="!state.selectedClusterId || busy" @click="scanCluster(state.selectedClusterId)">{{ t.scanSelected }}</button>
+          </div>
+        </div>
+
+        <div class="tool-layout">
+          <section class="panel tool-list">
+            <div class="section-head">
+              <div>
+                <h2>{{ t.detectedTools }}</h2>
+                <p>{{ visibleTools.length }} / {{ state.tools.length }} {{ countSuffix }}{{ t.detectedTools }}<span v-if="hiddenToolCount"> · {{ hiddenToolCount }} {{ t.hiddenTools }}</span></p>
+              </div>
+              <label class="check-row compact-toggle"><input v-model="state.showAllTools" type="checkbox" /><span>{{ t.showAllTools }}</span></label>
+            </div>
+            <article v-for="tool in visibleTools" :key="tool.id" class="tool-row" :class="{ active: currentTool?.id === tool.id }" @click="governTool(tool)">
+              <div class="tool-main">
+                <div class="row">
+                  <div class="card-title">{{ tool.name }}</div>
+                  <span class="badge">{{ tool.type }}</span>
+                  <span class="badge" :class="maxSeverity(tool.findings)">{{ severityLabel(maxSeverity(tool.findings)) }}</span>
+                </div>
+                <div class="meta-line">
+                  <span>{{ t.namespace }}: <strong>{{ tool.namespace }}</strong></span>
+                  <span>{{ t.kind }}: <strong>{{ tool.kind }}</strong></span>
+                  <span>{{ t.serviceAccount }}: <strong class="mono">{{ tool.serviceAccount }}</strong></span>
+                </div>
+                <div class="finding-list">
+                  <div v-for="finding in tool.findings" :key="finding.id" class="finding compact" :class="finding.severity">
+                    <div class="row"><strong>{{ findingTitle(finding) }}</strong><span class="badge" :class="finding.severity">{{ severityLabel(finding.severity) }}</span></div>
+                    <div class="small muted">{{ findingDescription(finding) }}</div>
+                    <div class="small mono">{{ finding.resource }}</div>
+                  </div>
+                </div>
+              </div>
+              <button class="primary" @click.stop="governTool(tool)">{{ t.govern }}</button>
+            </article>
+            <div v-if="!state.tools.length" class="empty">{{ t.noTools }}</div>
+          </section>
+
+          <section class="panel governance-panel">
+            <h2>{{ t.governanceAction }}</h2>
+            <div v-if="currentTool" class="stack">
+              <div class="kv"><span>{{ t.tool }}</span><span>{{ currentTool.name }}</span><span>{{ t.serviceAccount }}</span><span class="mono">{{ currentTool.namespace }}/{{ currentTool.serviceAccount }}</span></div>
+              <label>{{ t.template }}<select v-model="state.selectedTemplateId" @change="onTemplateChange"><option v-if="!hasToolTemplate" value="">{{ t.noTemplatesForTool }}</option><option v-for="template in candidateTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }} ({{ severityLabel(template.riskLevel) }})</option></select></label>
+              <div class="subsection">
+                <div class="subsection-title">{{ t.templateParameters }}</div>
+                <div class="grid two">
+                  <label v-for="param in selectedTemplateParams" :key="param.name">{{ localizedParamLabel(param) }} <input v-model="params[param.name]" :placeholder="param.default || param.name" /></label>
+                </div>
+              </div>
+              <div v-if="!hasToolTemplate" class="small muted">{{ t.noTemplatesForTool }}</div>
+              <label class="check-row">
+                <input v-model="state.cleanupOldBindings" type="checkbox" />
+                <span><strong>{{ t.cleanupOldBindings }}</strong><small>{{ t.cleanupOldBindingsHelp }}</small></span>
+              </label>
+              <div class="cleanup-list">
+                <div class="subsection-title">{{ t.cleanupCandidates }}</div>
+                <div v-if="cleanupCandidates(currentTool).length" class="pill-row">
+                  <span v-for="item in cleanupCandidates(currentTool)" :key="item" class="badge high mono">{{ item }}</span>
+                </div>
+                <div v-else class="small muted">{{ t.noCleanupBindings }}</div>
+              </div>
+              <div class="row"><button :disabled="!hasToolTemplate" @click="previewTemplate">{{ t.previewYaml }}</button><button class="primary" :disabled="!hasToolTemplate" @click="createPlan">{{ t.createPlan }}</button></div>
+              <div v-for="warning in state.warnings" :key="warning" class="finding medium"><strong>{{ t.warning }}</strong><div class="small">{{ warningLabel(warning) }}</div></div>
+              <div class="subsection">
+                <div class="subsection-title">{{ t.proposedYaml }}</div>
+                <p>{{ t.proposedYamlHelp }}</p>
+                <pre>{{ state.renderedYaml || t.previewPlaceholder }}</pre>
+              </div>
+            </div>
+            <div v-else class="empty">{{ t.selectTool }}</div>
+          </section>
+        </div>
+
+      </section>
+
+      <section v-else-if="state.view === 'tenants'" class="stack">
+        <div class="toolbar">
+          <label class="cluster-picker">{{ t.cluster }}
+            <select v-model="state.selectedClusterId" @change="onClusterChange">
+              <option v-for="cluster in state.clusters" :key="cluster.id" :value="cluster.id">{{ cluster.name }}</option>
+            </select>
+          </label>
+          <button v-if="canAdmin" class="primary" @click="state.showTenantModal = true">{{ t.createTenant }}</button>
+        </div>
+
+        <div class="tool-layout">
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <h2>{{ t.tenantGovernance }}</h2>
+                <p>{{ t.tenantGovernanceHelp }}</p>
+              </div>
+            </div>
+            <div class="stack">
+              <label>{{ t.tenantTemplate }}
+                <select v-model="state.selectedTenantTemplateId" @change="chooseTenantTemplate(state.selectedTenantTemplateId)">
+                  <option value="">{{ t.explicitTenantRequired }}</option>
+                  <option v-for="template in tenantTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }}</option>
+                </select>
+              </label>
+              <div class="small muted">{{ t.tenantControllerHint }}</div>
+              <div class="grid two">
+                <label>{{ t.namespace }} <input v-model="params.namespace" placeholder="scan Argo CD first" readonly /></label>
+              </div>
+              <div class="grid two">
+                <label>{{ t.tenantServiceAccount }} <input v-model="params.serviceAccount" placeholder="team-a-deployer" /></label>
+                <label>{{ t.sourceRepo }} <input v-model="params.sourceRepo" placeholder="*" /></label>
+              </div>
+              <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-sync-project'" class="grid two">
+                <label>{{ t.targetNamespace }} <input v-model="params.targetNamespace" placeholder="team-a" /></label>
+              </div>
+              <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-dynamic-namespaces'" class="stack">
+                <div class="grid two">
+                  <label>{{ t.tenantName }} <input v-model="params.tenant" placeholder="team-a" /></label>
+                  <label>{{ t.namespacePattern }} <input v-model="params.namespacePattern" placeholder="team-a-*" /></label>
+                </div>
+                <div class="grid two">
+                  <label>{{ t.tenantLabelKey }} <input v-model="params.tenantLabelKey" placeholder="tenant" /></label>
+                  <label>{{ t.tenantLabelValue }} <input v-model="params.tenantLabelValue" placeholder="team-a" /></label>
+                </div>
+              </div>
+              <div class="row">
+                <button :disabled="!state.selectedTenantTemplateId" @click="previewTenantPlan">{{ t.previewYaml }}</button>
+                <button class="primary" :disabled="!state.selectedTenantTemplateId" @click="createTenantPlan">{{ t.createPlan }}</button>
+              </div>
+              <div v-for="warning in state.warnings" :key="warning" class="finding medium"><strong>{{ t.warning }}</strong><div class="small">{{ warningLabel(warning) }}</div></div>
+            </div>
+          </section>
+
+          <section class="panel governance-panel">
+            <h2>{{ t.proposedYaml }}</h2>
+            <p>{{ t.proposedYamlHelp }}</p>
+            <pre>{{ state.renderedYaml || t.previewPlaceholder }}</pre>
+          </section>
+        </div>
+
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <h2>{{ t.tenantCredential }}</h2>
+              <p>{{ t.credentialHelp }}</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <label>{{ t.credentialNamespace }} <input v-model="state.credentialNamespace" placeholder="team-a" /></label>
+            <label>{{ t.credentialServiceAccount }} <input v-model="state.credentialServiceAccount" placeholder="team-a-deployer" /></label>
+            <label>{{ t.credentialExpiration }} <input v-model.number="state.credentialExpiration" type="number" min="600" max="86400" step="600" /></label>
+            <label>{{ t.credentialFormat }}
+              <select v-model="state.credentialFormat">
+                <option value="kubeconfig">kubeconfig</option>
+                <option value="token">token</option>
+              </select>
+            </label>
+          </div>
+          <div class="row"><button class="primary" :disabled="!state.selectedClusterId || !state.credentialNamespace || !state.credentialServiceAccount" @click="createTenantCredential">{{ t.generateCredential }}</button></div>
+          <div v-if="state.tenantCredentialOutput" class="subsection">
+            <div class="subsection-title">{{ t.credentialOutput }}</div>
+            <p v-if="state.tenantCredentialExpiresAt">{{ t.credentialExpires }}: {{ formatTime(state.tenantCredentialExpiresAt) }}</p>
+            <pre>{{ state.tenantCredentialOutput }}</pre>
+          </div>
+        </section>
+
+        <section v-if="canAdmin" class="panel">
+          <div class="section-head">
+            <div>
+              <h2>{{ t.tenantScope }}</h2>
+              <p>{{ state.lang === 'zh' ? '页面访问范围和租户同步权限是两层能力：这里管理页面可见范围，上方管理 Argo CD 租户同步权限。' : 'UI access scope and tenant sync permissions are separate layers. This section controls visibility; the form above controls Argo CD tenant sync permissions.' }}</p>
+            </div>
+          </div>
+          <div class="grid three">
+            <article v-for="tenant in state.tenants" :key="tenant.id" class="card">
+              <div class="row"><strong>{{ tenant.name }}</strong><span class="badge low">{{ tenant.id }}</span></div>
+              <div class="small muted">{{ t.tenantClusters }}: {{ tenant.clusterIds.join(', ') || '-' }}</div>
+              <div class="small muted">{{ t.tenantNamespaces }}: {{ tenant.namespaces.join(', ') || '-' }}</div>
+            </article>
+          </div>
+        </section>
+      </section>
+
+      <section v-else-if="state.view === 'templates'" class="stack">
+        <section class="panel template-catalog-panel">
+          <div class="section-head">
+            <div>
+              <h2>{{ t.templateCatalog }}</h2>
+              <p>{{ t.templateCatalogHelp }}</p>
+            </div>
+            <button v-if="canAdmin" class="primary" @click="state.showTemplateModal = true">{{ t.createTemplate }}</button>
+          </div>
+          <div class="template-summary-grid">
+            <div class="template-summary"><span>{{ t.builtinTemplates }}</span><strong>{{ builtinTemplates.length }}</strong></div>
+            <div class="template-summary"><span>{{ t.customTemplates }}</span><strong>{{ customTemplates.length }}</strong></div>
+          </div>
+          <div class="template-table">
+            <div class="template-section-title">{{ t.builtinTemplates }}</div>
+            <article v-for="template in builtinTemplates" :key="template.id" class="template-row">
+              <div>
+                <div class="card-title">{{ localizedTemplateName(template) }}</div>
+                <p>{{ localizedTemplateDescription(template) }}</p>
+                <div class="small muted mono">{{ template.id }}</div>
+              </div>
+              <div class="template-meta">
+                <span class="badge">{{ template.tool }}</span>
+                <span class="badge">{{ permissionProfileLabel(template) }}</span>
+                <span class="badge">{{ scopeText[template.scope] || template.scope }}</span>
+                <span class="badge" :class="template.riskLevel">{{ severityLabel(template.riskLevel) }}</span>
+              </div>
+              <button @click="openTemplatePreview(template)">{{ t.preview }}</button>
+            </article>
+            <div class="template-section-title">{{ t.customTemplates }}</div>
+            <article v-for="template in customTemplates" :key="template.id" class="template-row">
+              <div>
+                <div class="card-title">{{ localizedTemplateName(template) }}</div>
+                <p>{{ localizedTemplateDescription(template) }}</p>
+                <div class="small muted mono">{{ template.id }}</div>
+              </div>
+              <div class="template-meta">
+                <span class="badge">{{ template.tool }}</span>
+                <span class="badge">{{ permissionProfileLabel(template) }}</span>
+                <span class="badge">{{ scopeText[template.scope] || template.scope }}</span>
+                <span class="badge" :class="template.riskLevel">{{ severityLabel(template.riskLevel) }}</span>
+              </div>
+              <button @click="openTemplatePreview(template)">{{ t.preview }}</button>
+            </article>
+            <div v-if="!customTemplates.length" class="empty compact-empty">{{ t.noCustomTemplates }}</div>
+          </div>
+        </section>
+      </section>
+
+      <section v-else-if="state.view === 'plans'" class="grid">
+        <article v-for="plan in state.plans" :key="plan.id" class="card">
+          <div class="row"><div class="card-title">{{ plan.templateId }}</div><span class="badge" :class="plan.status === 'applied' ? 'success' : plan.status === 'failed' ? 'high' : 'medium'">{{ statusLabel(plan.status) }}</span></div>
+          <div class="kv"><span>{{ t.cluster }}</span><span class="mono">{{ plan.clusterId }}</span><span>{{ t.tool }}</span><span class="mono">{{ plan.toolId || '-' }}</span><span>{{ t.created }}</span><span>{{ formatTime(plan.createdAt) }}</span><span>{{ t.result }}</span><span>{{ messageLabel(plan.result) }}</span></div>
+          <p class="notice">{{ t.planNote }}</p>
+          <div v-for="warning in plan.warnings" :key="warning" class="finding medium"><strong>{{ t.warning }}</strong><div class="small">{{ warningLabel(warning) }}</div></div>
+          <div v-if="plan.cleanup?.length" class="cleanup-list">
+            <div class="subsection-title">{{ t.cleanupBindings }}</div>
+            <div class="pill-row">
+              <span v-for="item in plan.cleanup" :key="item.kind + item.namespace + item.name" class="badge high mono">{{ item.namespace ? `${item.namespace}/${item.kind}/${item.name}` : `${item.kind}/${item.name}` }}</span>
+            </div>
+          </div>
+          <div class="plan-grid">
+            <div class="subsection">
+              <div class="subsection-title">{{ t.currentPermissionCheck }}</div>
+              <p>{{ t.currentPermissionHelp }}</p>
+              <div v-if="plan.validation?.length" class="stack">
+                <div v-for="check in plan.validation" :key="check.namespace + check.resource + check.verb" class="finding" :class="check.allowed ? 'low' : 'high'">
+                  <div class="row"><strong>{{ check.verb }} {{ check.resource }}</strong><span class="badge" :class="check.allowed ? 'success' : 'high'">{{ check.allowed ? t.allowed : t.denied }}</span></div>
+                  <div class="small muted">{{ check.serviceAccount }} @ {{ check.namespace || '-' }}</div><div class="small">{{ check.reason }}</div>
+                </div>
+              </div>
+              <div v-else class="empty">{{ t.currentPermissionCheck }}</div>
+            </div>
+            <div class="subsection">
+              <div class="subsection-title">{{ t.proposedYaml }}</div>
+              <p>{{ t.proposedYamlHelp }}</p>
+              <pre>{{ plan.yaml }}</pre>
+            </div>
+          </div>
+          <div class="row"><button @click="validatePlan(plan)">{{ t.validate }}</button><button class="primary" :disabled="plan.status === 'applied' || busy" @click="applyPlan(plan)">{{ t.apply }}</button><button class="danger" :disabled="busy || !plan.rollback?.length" @click="rollbackPlan(plan)">{{ t.rollback }}</button></div>
+        </article>
+        <div v-if="!state.plans.length" class="empty">{{ t.noPlans }}</div>
+      </section>
+
+      <section v-else class="panel">
+        <table class="table">
+          <thead><tr><th>{{ t.time }}</th><th>{{ t.action }}</th><th>{{ t.status }}</th><th>{{ t.cluster }}</th><th>{{ t.message }}</th></tr></thead>
+          <tbody>
+            <tr v-for="event in state.audit" :key="event.id">
+              <td>{{ formatTime(event.createdAt) }}</td><td>{{ auditActionLabel(event.action) }}</td><td><span class="badge" :class="event.status === 'success' ? 'success' : event.status === 'failed' || event.status === 'error' ? 'high' : 'medium'">{{ statusLabel(event.status) }}</span></td><td class="mono">{{ event.clusterId || '-' }}</td><td>{{ messageLabel(event.message) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div v-if="state.showToolModal" class="modal-backdrop" @click.self="state.showToolModal = false">
+        <section class="modal">
+          <div class="section-head"><div><h2>{{ t.registerTool }}</h2><p>{{ t.toolRegistryHelp }}</p></div><button @click="state.showToolModal = false">{{ t.close }}</button></div>
+          <div class="stack">
+            <label>{{ t.tool }} <input v-model="state.toolProfile.type" placeholder="trivy" /></label>
+            <label>{{ t.name }} <input v-model="state.toolProfile.name" placeholder="Trivy" /></label>
+            <label>{{ t.matchText }} <input v-model="state.toolProfile.matchText" placeholder="trivy,aqua" /></label>
+            <label>{{ t.recommendedTemplates }} <input v-model="state.toolProfile.recommendedTemplateIds" placeholder="prometheus-namespace-reader" /></label>
+            <div class="row end"><button class="primary" @click="createToolProfile">{{ t.registerTool }}</button></div>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="state.showTenantModal" class="modal-backdrop" @click.self="state.showTenantModal = false">
+        <section class="modal">
+          <div class="section-head"><div><h2>{{ t.createTenant }}</h2><p>{{ state.lang === 'zh' ? '这里只创建控制台租户范围，不会自动创建 Argo CD tenant SA。' : 'This creates console tenant scope only. It does not automatically create an Argo CD tenant ServiceAccount.' }}</p></div><button @click="state.showTenantModal = false">{{ t.close }}</button></div>
+          <div class="stack">
+            <label>{{ t.tenantName }} <input v-model="state.newTenantName" placeholder="team-a" /></label>
+            <label>{{ t.tenantClusters }} <input v-model="state.newTenantClusters" placeholder="kind-rbac-manager-test,*" /></label>
+            <label>{{ t.tenantNamespaces }} <input v-model="state.newTenantNamespaces" placeholder="team-a,team-b,*" /></label>
+            <div class="row end"><button class="primary" :disabled="busy || !state.newTenantName" @click="createTenant(); state.showTenantModal = false">{{ t.createTenant }}</button></div>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="state.showTemplateModal" class="modal-backdrop" @click.self="state.showTemplateModal = false">
+        <section class="modal wide">
+          <div class="section-head"><div><h2>{{ t.createTemplate }}</h2><p>{{ t.customTemplateHelp }}</p></div><button @click="state.showTemplateModal = false">{{ t.close }}</button></div>
+          <div class="template-form">
+            <div class="stack">
+              <label>{{ t.templateId }} <input v-model="state.customTemplate.id" placeholder="custom.namespace-reader" /></label>
+              <label>{{ t.tool }} <input v-model="state.customTemplate.tool" placeholder="custom" /></label>
+              <label>{{ t.name }} <input v-model="state.customTemplate.name" /></label>
+              <label>{{ t.message }} <input v-model="state.customTemplate.description" /></label>
+              <div class="grid two">
+                <label>{{ t.scope }}
+                  <select v-model="state.customTemplate.scope">
+                    <option value="namespace">{{ scopeText.namespace }}</option>
+                    <option value="cluster">{{ scopeText.cluster }}</option>
+                    <option value="mixed">{{ scopeText.mixed }}</option>
+                  </select>
+                </label>
+                <label>{{ t.risk }}
+                  <select v-model="state.customTemplate.riskLevel">
+                    <option value="low">{{ severityLabel('low') }}</option>
+                    <option value="medium">{{ severityLabel('medium') }}</option>
+                    <option value="high">{{ severityLabel('high') }}</option>
+                  </select>
+                </label>
+              </div>
+              <button class="primary" @click="createCustomTemplate">{{ t.createTemplate }}</button>
+            </div>
+            <label>{{ t.templateYaml }} <textarea v-model="state.customTemplate.yaml" placeholder="apiVersion: rbac.authorization.k8s.io/v1&#10;kind: ClusterRole&#10;metadata:&#10;  name: custom-role" /></label>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="state.showTemplatePreview && previewTemplateObject" class="modal-backdrop" @click.self="state.showTemplatePreview = false">
+        <section class="modal wide">
+          <div class="section-head">
+            <div>
+              <h2>{{ localizedTemplateName(previewTemplateObject) }}</h2>
+              <p>{{ localizedTemplateDescription(previewTemplateObject) }}</p>
+              <p class="small">{{ t.templatePreviewHelp }}</p>
+            </div>
+            <button @click="state.showTemplatePreview = false">{{ t.close }}</button>
+          </div>
+          <div class="template-meta">
+            <span class="badge">{{ previewTemplateObject.tool }}</span>
+            <span class="badge">{{ permissionProfileLabel(previewTemplateObject) }}</span>
+            <span class="badge">{{ scopeText[previewTemplateObject.scope] || previewTemplateObject.scope }}</span>
+            <span class="badge" :class="previewTemplateObject.riskLevel">{{ severityLabel(previewTemplateObject.riskLevel) }}</span>
+          </div>
+          <div class="cleanup-list" style="margin-top: 12px">
+            <div class="subsection-title">{{ t.params }}</div>
+            <div v-if="previewTemplateObject.params.length" class="param-list">
+              <div v-for="param in previewTemplateObject.params" :key="param.name" class="param-row">
+                <span><strong>{{ localizedParamLabel(param) }}</strong><small class="mono">{{ param.name }}</small></span>
+                <span class="badge" :class="param.required ? 'medium' : 'low'">{{ param.required ? t.requiredParam : t.optionalParam }}</span>
+                <span class="small muted">{{ param.default ? `${t.defaultValue}: ${param.default}` : '-' }}</span>
+              </div>
+            </div>
+            <div v-else class="small muted">{{ t.noParams }}</div>
+          </div>
+          <div class="stack" style="margin-top: 12px">
+            <div v-for="resource in previewTemplateObject.resources" :key="resource.kind" class="subsection">
+              <div class="subsection-title">{{ resource.kind }}</div>
+              <pre>{{ resource.template }}</pre>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</template>

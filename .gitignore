@@ -1,0 +1,6 @@
+.gocache/
+.repo.git/
+data/
+web/node_modules/
+web/dist/
+npm-debug.log*

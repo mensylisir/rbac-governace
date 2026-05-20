@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rbac-governance
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rbac-governance
+  namespace: rbac-governance
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rbac-governance
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets", "serviceaccounts", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "clusterroles"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "bind", "escalate"]
+  - apiGroups: ["rbacmanager.reactiveops.io", "rbac-manager.reactiveops.io"]
+    resources: ["rbacdefinitions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["appprojects", "applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rbac-governance
+subjects:
+  - kind: ServiceAccount
+    name: rbac-governance
+    namespace: rbac-governance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rbac-governance
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rbac-governance
+  namespace: rbac-governance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rbac-governance
+  template:
+    metadata:
+      labels:
+        app: rbac-governance
+    spec:
+      serviceAccountName: rbac-governance
+      containers:
+        - name: app
+          image: rbac-governance:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATA_FILE
+              value: /data/state.json
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rbac-governance-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rbac-governance-data
+  namespace: rbac-governance
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rbac-governance
+  namespace: rbac-governance
+spec:
+  selector:
+    app: rbac-governance
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
