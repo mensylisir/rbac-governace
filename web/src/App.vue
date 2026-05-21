@@ -49,6 +49,7 @@ const messages = {
     sourceRepo: 'Allowed source repository',
     explicitTenantRequired: 'Select a tenant template and fill tenant, SA, and namespace scope explicitly.',
     tenantControllerHint: 'The Argo CD namespace and controller SA are detected from the scanned application-controller workload.',
+    tenantSaLocationHint: 'Tenant SA will be created in the Argo CD namespace ({namespace}) for centralized management.',
     clusterOverview: 'Cluster overview',
     importCluster: 'Import cluster',
     name: 'Name',
@@ -74,8 +75,6 @@ const messages = {
     serviceAccount: 'ServiceAccount',
     govern: 'Govern',
     noTools: 'No tools found. Run a scan first.',
-    showAllTools: 'Show all components',
-    hiddenTools: 'low-risk components hidden',
     registerTool: 'Register tool profile',
     addTool: 'Add tool',
     close: 'Close',
@@ -108,6 +107,7 @@ const messages = {
     previewPlaceholder: 'Preview output will appear here.',
     selectTool: 'Select a tool to preview and apply a template. Argo CD tool governance only handles the control-plane baseline here.',
     noTemplatesForTool: 'No ready-made template is available for this component.',
+    quickCredential: 'Generate credential for this SA',
     id: 'ID',
     scope: 'Scope',
     source: 'Source',
@@ -240,6 +240,7 @@ const messages = {
     sourceRepo: '允许的 Git 仓库',
     explicitTenantRequired: '请选择租户模板，并显式填写租户、SA 和命名空间范围。',
     tenantControllerHint: 'Argo CD 命名空间和 controller SA 会从扫描到的 application-controller 工作负载自动获取。',
+    tenantSaLocationHint: '租户 SA 将创建在 Argo CD 命名空间（{namespace}）中，便于集中管理。',
     clusterOverview: '集群概览',
     importCluster: '导入集群',
     name: '名称',
@@ -265,8 +266,6 @@ const messages = {
     serviceAccount: 'ServiceAccount',
     govern: '治理',
     noTools: '还没有发现工具，请先扫描。',
-    showAllTools: '显示全部组件',
-    hiddenTools: '个低风险组件已隐藏',
     registerTool: '注册工具识别规则',
     addTool: '新增工具',
     close: '关闭',
@@ -299,6 +298,7 @@ const messages = {
     previewPlaceholder: '预览结果会显示在这里。',
     selectTool: '选择一个工具后预览并应用模板。Argo CD 工具治理这里只处理控制面基线，不会默认创建租户。',
     noTemplatesForTool: '这个组件目前没有预置模板。',
+    quickCredential: '为此 SA 生成凭证',
     id: 'ID',
     scope: '范围',
     source: '来源',
@@ -423,7 +423,6 @@ const state = reactive({
   showTemplateModal: false,
   showTenantModal: false,
   showTemplatePreview: false,
-  showAllTools: false,
   cleanupOldBindings: false,
   renderedYaml: '',
   tenantCredentialOutput: '',
@@ -461,8 +460,8 @@ const busy = ref(false)
 const t = computed(() => messages[state.lang])
 const title = computed(() => t.value.views[state.view])
 const subtitle = computed(() => t.value.subtitles[state.view])
-const visibleTools = computed(() => state.showAllTools ? state.tools : state.tools.filter((tool) => isActionableTool(tool)))
-const hiddenToolCount = computed(() => state.tools.length - visibleTools.value.length)
+const visibleTools = computed(() => state.tools)
+const hiddenToolCount = computed(() => 0)
 const currentTool = computed(() => state.tools.find((tool) => tool.id === state.selectedToolId) || visibleTools.value[0] || state.tools[0] || null)
 const argoControllerTool = computed(() => state.tools.find((tool) => isArgoControllerTool(tool)) || null)
 const candidateTemplates = computed(() => {
@@ -475,7 +474,7 @@ const candidateTemplates = computed(() => {
   return state.templates.filter((template) => template.tool === tool.type || recommended.has(template.id))
 })
 const hasToolTemplate = computed(() => candidateTemplates.value.length > 0)
-const tenantTemplates = computed(() => state.templates.filter((template) => template.id === 'argocd-tenant-sync-project' || template.id === 'argocd-tenant-dynamic-namespaces'))
+const tenantTemplates = computed(() => state.templates.filter((template) => template.id === 'argocd-tenant-sync-project' || template.id === 'argocd-tenant-label-selector'))
 const selectedTemplate = computed(() => state.templates.find((template) => template.id === state.selectedTemplateId) || null)
 const selectedTemplateParams = computed(() => selectedTemplate.value?.params || [])
 const canAdmin = computed(() => state.me?.role === 'platform-admin')
@@ -563,35 +562,13 @@ function governTool(tool: Tool) {
   state.warnings = []
 }
 
-function isActionableTool(tool: Tool) {
-  return tool.recommendedTemplateIds.length > 0 || maxSeverity(tool.findings) !== 'low' || isArgoControllerTool(tool)
-}
-
 function seedTemplateParams(tool: Tool) {
   for (const key of Object.keys(params)) params[key] = ''
   params.namespace = tool.namespace
-  params.controllerServiceAccount = tool.serviceAccount
-  params.serviceAccount = tool.type === 'argocd' ? `${tenantName(tool)}-deployer` : tool.serviceAccount
-  params.targetNamespace = tool.namespace
-  params.targetServiceAccount = tool.serviceAccount
-  params.tenant = tenantName(tool)
-  params.namespacePattern = `${params.tenant}-*`
-  params.tenantLabelKey = 'tenant'
-  params.tenantLabelValue = params.tenant
-  params.sourceRepo = '*'
+  params.serviceAccount = tool.type === 'argocd' ? '' : tool.serviceAccount
   if (tool.type === 'argocd') {
-    params.namespace = tool.namespace || 'argocd'
-    params.targetNamespace = ''
-    params.serviceAccount = ''
-    params.tenant = ''
-    params.namespacePattern = ''
-    params.tenantLabelValue = ''
+    params.controllerServiceAccount = tool.serviceAccount
   }
-}
-
-function tenantName(tool: Tool) {
-  if (tool.namespace && !['argocd', 'kube-system', 'monitoring', 'logging', 'logs', 'ci'].includes(tool.namespace)) return tool.namespace
-  return 'team-a'
 }
 
 function applyTemplateDefaults() {
@@ -617,6 +594,23 @@ async function createPlan() {
     state.warnings = plan.warnings || []
     await refresh()
     state.view = 'plans'
+  })
+}
+
+async function quickCredential(tool: Tool) {
+  await run(async () => {
+    const result = await api<TenantCredential>('/api/tenants/credentials', {
+      method: 'POST',
+      body: JSON.stringify({
+        clusterId: state.selectedClusterId,
+        namespace: tool.namespace,
+        serviceAccount: tool.serviceAccount,
+        expirationSeconds: 28800,
+        format: 'kubeconfig',
+      }),
+    })
+    state.tenantCredentialOutput = result.kubeconfig || result.token || ''
+    state.tenantCredentialExpiresAt = result.expiresAt || ''
   })
 }
 
@@ -920,7 +914,7 @@ function permissionProfile(template: Template) {
   if (template.riskLevel === 'high') return template.id.includes('breakglass') ? 'breakglass' : 'admin'
   if (template.scope === 'cluster') return template.riskLevel === 'low' ? 'view' : 'admin'
   if (template.id.includes('reader') || template.id.includes('read-only')) return 'view'
-  if (template.id.includes('deployer') || template.id.includes('sync')) return 'deploy'
+  if (template.id.includes('edit') || template.id.includes('sync')) return 'deploy'
   return template.riskLevel === 'low' ? 'view' : 'deploy'
 }
 
@@ -950,21 +944,21 @@ function localizedParamLabel(param: { name: string; label: string }) {
 
 const templateLocaleMeta: Record<Lang, Record<string, { name: string; description: string }>> = {
   en: {
-    'argocd-tenant-namespace-deployer': {
-      name: 'Argo CD tenant namespace deployer',
+    'argocd-tenant-namespace-edit': {
+      name: 'Argo CD tenant namespace edit',
       description: 'Legacy single-namespace template. Prefer the tenant project template for new Argo CD tenants.',
     },
-    'argocd-control-plane-read-only': {
-      name: 'Argo CD control-plane read-only baseline',
-      description: 'For a new Argo CD installation: grants controller read/watch only. Tenant ServiceAccounts and AppProjects are created separately from the Tenants page.',
+    'argocd-application-controller-view': {
+      name: 'Argo CD application-controller view',
+      description: 'Replaces default wildcard permissions with read-only get/list/watch across all resources.',
     },
     'argocd-tenant-sync-project': {
       name: 'Argo CD tenant sync project',
-      description: 'Creates a tenant ServiceAccount in the Argo CD namespace, a tenant AppProject, namespace-scoped sync RBAC, and exact controller impersonation for that tenant.',
+      description: 'Single-namespace tenant. Creates SA in Argo CD namespace, AppProject, and namespace-scoped RBAC.',
     },
-    'argocd-tenant-dynamic-namespaces': {
-      name: 'Argo CD tenant dynamic namespaces',
-      description: 'Uses an AppProject namespace pattern and RBAC Manager namespaceSelector to grant one tenant ServiceAccount access to labeled namespaces.',
+    'argocd-tenant-label-selector': {
+      name: 'Argo CD tenant label selector',
+      description: 'Multi-namespace tenant. Uses label selector to grant access to dynamic namespaces.',
     },
     'argocd-control-plane-read-impersonate': {
       name: 'Argo CD control-plane read and impersonate',
@@ -974,8 +968,8 @@ const templateLocaleMeta: Record<Lang, Record<string, { name: string; descriptio
       name: 'Jenkins agent manager',
       description: 'Lets Jenkins manage build agent Pods in one namespace.',
     },
-    'jenkins-namespace-deployer': {
-      name: 'Jenkins namespace deployer',
+    'jenkins-namespace-edit': {
+      name: 'Jenkins namespace edit',
       description: 'Lets Jenkins deploy common workload resources in one namespace.',
     },
     'prometheus-cluster-reader': {
@@ -996,21 +990,21 @@ const templateLocaleMeta: Record<Lang, Record<string, { name: string; descriptio
     },
   },
   zh: {
-    'argocd-tenant-namespace-deployer': {
-      name: 'Argo CD 租户命名空间部署器',
+    'argocd-tenant-namespace-edit': {
+      name: 'Argo CD 租户命名空间编辑',
       description: '旧版单命名空间模板。新租户建议优先使用租户项目模板。',
     },
-    'argocd-control-plane-read-only': {
-      name: 'Argo CD 控制面只读基线',
-      description: '用于全新 Argo CD：只给 controller 读/观察权限。租户 ServiceAccount 和 AppProject 请在租户页单独创建。',
+    'argocd-application-controller-view': {
+      name: 'Argo CD application-controller 只读',
+      description: '将默认通配符权限替换为全集群资源的 get/list/watch 只读权限。',
     },
     'argocd-tenant-sync-project': {
       name: 'Argo CD 租户同步项目',
-      description: '创建 Argo CD 命名空间下的租户同步 SA、租户 AppProject、目标命名空间同步 RBAC，以及该租户的精确 controller 冒充权限。',
+      description: '单命名空间租户。在 Argo CD 命名空间创建 SA、AppProject 和命名空间级 RBAC。',
     },
-    'argocd-tenant-dynamic-namespaces': {
-      name: 'Argo CD 租户动态命名空间',
-      description: '使用 AppProject 命名空间模式和 RBAC Manager namespaceSelector，让一个租户 SA 自动获得带标签命名空间的权限。',
+    'argocd-tenant-label-selector': {
+      name: 'Argo CD 租户标签选择器',
+      description: '多命名空间租户。使用标签选择器授予动态命名空间访问权限。',
     },
     'argocd-control-plane-read-impersonate': {
       name: 'Argo CD 控制面只读与冒充',
@@ -1020,9 +1014,9 @@ const templateLocaleMeta: Record<Lang, Record<string, { name: string; descriptio
       name: 'Jenkins Agent 管理器',
       description: '允许 Jenkins 在单个命名空间内管理构建 Agent Pod。',
     },
-    'jenkins-namespace-deployer': {
-      name: 'Jenkins 命名空间部署器',
-      description: '允许 Jenkins 在单个命名空间内部署常见工作负载资源。',
+    'jenkins-namespace-edit': {
+      name: 'Jenkins 命名空间编辑',
+      description: '让 Jenkins 在单个命名空间中部署常见工作负载资源。',
     },
     'prometheus-cluster-reader': {
       name: 'Prometheus 集群读者',
@@ -1141,9 +1135,8 @@ onMounted(refresh)
             <div class="section-head">
               <div>
                 <h2>{{ t.detectedTools }}</h2>
-                <p>{{ visibleTools.length }} / {{ state.tools.length }} {{ countSuffix }}{{ t.detectedTools }}<span v-if="hiddenToolCount"> · {{ hiddenToolCount }} {{ t.hiddenTools }}</span></p>
+                <p>{{ visibleTools.length }} {{ countSuffix }}{{ t.detectedTools }}</p>
               </div>
-              <label class="check-row compact-toggle"><input v-model="state.showAllTools" type="checkbox" /><span>{{ t.showAllTools }}</span></label>
             </div>
             <article v-for="tool in visibleTools" :key="tool.id" class="tool-row" :class="{ active: currentTool?.id === tool.id }" @click="governTool(tool)">
               <div class="tool-main">
@@ -1174,7 +1167,7 @@ onMounted(refresh)
             <h2>{{ t.governanceAction }}</h2>
             <div v-if="currentTool" class="stack">
               <div class="kv"><span>{{ t.tool }}</span><span>{{ currentTool.name }}</span><span>{{ t.serviceAccount }}</span><span class="mono">{{ currentTool.namespace }}/{{ currentTool.serviceAccount }}</span></div>
-              <label>{{ t.template }}<select v-model="state.selectedTemplateId" @change="onTemplateChange"><option v-if="!hasToolTemplate" value="">{{ t.noTemplatesForTool }}</option><option v-for="template in candidateTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }} ({{ severityLabel(template.riskLevel) }})</option></select></label>
+              <label>{{ t.template }}<select v-model="state.selectedTemplateId" @change="onTemplateChange"><option v-if="!hasToolTemplate" value="">{{ t.noTemplatesForTool }}</option><option v-for="template in candidateTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }}</option></select></label>
               <div class="subsection">
                 <div class="subsection-title">{{ t.templateParameters }}</div>
                 <div class="grid two">
@@ -1193,7 +1186,7 @@ onMounted(refresh)
                 </div>
                 <div v-else class="small muted">{{ t.noCleanupBindings }}</div>
               </div>
-              <div class="row"><button :disabled="!hasToolTemplate" @click="previewTemplate">{{ t.previewYaml }}</button><button class="primary" :disabled="!hasToolTemplate" @click="createPlan">{{ t.createPlan }}</button></div>
+              <div class="row"><button :disabled="!hasToolTemplate" @click="previewTemplate">{{ t.previewYaml }}</button><button class="primary" :disabled="!hasToolTemplate" @click="createPlan">{{ t.createPlan }}</button><button @click="quickCredential(currentTool!)">{{ t.quickCredential }}</button></div>
               <div v-for="warning in state.warnings" :key="warning" class="finding medium"><strong>{{ t.warning }}</strong><div class="small">{{ warningLabel(warning) }}</div></div>
               <div class="subsection">
                 <div class="subsection-title">{{ t.proposedYaml }}</div>
@@ -1233,6 +1226,7 @@ onMounted(refresh)
                 </select>
               </label>
               <div class="small muted">{{ t.tenantControllerHint }}</div>
+              <div v-if="state.selectedTenantTemplateId && params.namespace" class="small warning-hint">⚠️ {{ t.tenantSaLocationHint.replace('{namespace}', params.namespace) }}</div>
               <div class="grid two">
                 <label>{{ t.namespace }} <input v-model="params.namespace" placeholder="scan Argo CD first" readonly /></label>
               </div>
@@ -1243,7 +1237,7 @@ onMounted(refresh)
               <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-sync-project'" class="grid two">
                 <label>{{ t.targetNamespace }} <input v-model="params.targetNamespace" placeholder="team-a" /></label>
               </div>
-              <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-dynamic-namespaces'" class="stack">
+              <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-label-selector'" class="stack">
                 <div class="grid two">
                   <label>{{ t.tenantName }} <input v-model="params.tenant" placeholder="team-a" /></label>
                   <label>{{ t.namespacePattern }} <input v-model="params.namespacePattern" placeholder="team-a-*" /></label>
@@ -1328,7 +1322,7 @@ onMounted(refresh)
             <div class="template-section-title">{{ t.builtinTemplates }}</div>
             <article v-for="template in builtinTemplates" :key="template.id" class="template-row">
               <div>
-                <div class="card-title">{{ localizedTemplateName(template) }}</div>
+                <div class="card-title">{{ template.tool }} · {{ permissionProfileLabel(template) }} — {{ localizedTemplateName(template) }}</div>
                 <p>{{ localizedTemplateDescription(template) }}</p>
                 <div class="small muted mono">{{ template.id }}</div>
               </div>
@@ -1336,14 +1330,13 @@ onMounted(refresh)
                 <span class="badge">{{ template.tool }}</span>
                 <span class="badge">{{ permissionProfileLabel(template) }}</span>
                 <span class="badge">{{ scopeText[template.scope] || template.scope }}</span>
-                <span class="badge" :class="template.riskLevel">{{ severityLabel(template.riskLevel) }}</span>
               </div>
               <button @click="openTemplatePreview(template)">{{ t.preview }}</button>
             </article>
             <div class="template-section-title">{{ t.customTemplates }}</div>
             <article v-for="template in customTemplates" :key="template.id" class="template-row">
               <div>
-                <div class="card-title">{{ localizedTemplateName(template) }}</div>
+                <div class="card-title">{{ template.tool }} · {{ permissionProfileLabel(template) }} — {{ localizedTemplateName(template) }}</div>
                 <p>{{ localizedTemplateDescription(template) }}</p>
                 <div class="small muted mono">{{ template.id }}</div>
               </div>
@@ -1351,7 +1344,6 @@ onMounted(refresh)
                 <span class="badge">{{ template.tool }}</span>
                 <span class="badge">{{ permissionProfileLabel(template) }}</span>
                 <span class="badge">{{ scopeText[template.scope] || template.scope }}</span>
-                <span class="badge" :class="template.riskLevel">{{ severityLabel(template.riskLevel) }}</span>
               </div>
               <button @click="openTemplatePreview(template)">{{ t.preview }}</button>
             </article>
@@ -1477,7 +1469,6 @@ onMounted(refresh)
             <span class="badge">{{ previewTemplateObject.tool }}</span>
             <span class="badge">{{ permissionProfileLabel(previewTemplateObject) }}</span>
             <span class="badge">{{ scopeText[previewTemplateObject.scope] || previewTemplateObject.scope }}</span>
-            <span class="badge" :class="previewTemplateObject.riskLevel">{{ severityLabel(previewTemplateObject.riskLevel) }}</span>
           </div>
           <div class="cleanup-list" style="margin-top: 12px">
             <div class="subsection-title">{{ t.params }}</div>
