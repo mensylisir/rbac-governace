@@ -7,7 +7,7 @@ import (
 
 func TestRenderNamespaceTemplate(t *testing.T) {
 	registry := NewTemplateRegistry()
-	yml, warnings, err := registry.Render("jenkins-namespace-deployer", map[string]string{
+	yml, warnings, err := registry.Render("jenkins-namespace-edit", map[string]string{
 		"namespace":      "team-a",
 		"serviceAccount": "jenkins",
 	})
@@ -26,7 +26,7 @@ func TestRenderNamespaceTemplate(t *testing.T) {
 
 func TestRenderRequiresParams(t *testing.T) {
 	registry := NewTemplateRegistry()
-	_, _, err := registry.Render("jenkins-namespace-deployer", map[string]string{"namespace": "team-a"})
+	_, _, err := registry.Render("jenkins-namespace-edit", map[string]string{"namespace": "team-a"})
 	if err == nil {
 		t.Fatal("expected missing parameter error")
 	}
@@ -34,11 +34,12 @@ func TestRenderRequiresParams(t *testing.T) {
 
 func TestHighRiskTemplateWarns(t *testing.T) {
 	registry := NewTemplateRegistry()
-	_, warnings, err := registry.Render("argocd-control-plane-read-impersonate", map[string]string{
-		"namespace":            "argocd",
-		"serviceAccount":       "argocd-application-controller",
-		"targetNamespace":      "team-a",
-		"targetServiceAccount": "team-a-deployer",
+	_, warnings, err := registry.Render("argocd-static-tenant", map[string]string{
+		"namespace":              "argocd",
+		"controllerServiceAccount": "argocd-application-controller",
+		"serviceAccount":         "team-a-deployer",
+		"targetNamespace":        "team-a",
+		"sourceRepo":             "*",
 	})
 	if err != nil {
 		t.Fatal(err)

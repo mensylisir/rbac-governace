@@ -527,7 +527,7 @@ func (s *Server) resolveTemplateParams(req *RenderTemplateRequest) error {
 		req.Params = map[string]string{}
 	}
 	switch req.TemplateID {
-	case "argocd-tenant-sync-project", "argocd-tenant-label-selector":
+	case "argocd-static-tenant", "argocd-dynamic-tenant":
 		if strings.TrimSpace(req.Params["namespace"]) != "" && strings.TrimSpace(req.Params["controllerServiceAccount"]) != "" {
 			return nil
 		}

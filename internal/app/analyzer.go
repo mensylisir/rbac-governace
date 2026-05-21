@@ -107,7 +107,7 @@ func recommendedTemplates(ref kube.WorkloadRef) []string {
 	switch strings.ToLower(ref.Type) {
 	case "argocd":
 		if isArgoApplicationController(ref) {
-			return []string{"argocd-application-controller-view"}
+			return []string{"argocd-control-plane"}
 		}
 		return []string{}
 	case "jenkins":

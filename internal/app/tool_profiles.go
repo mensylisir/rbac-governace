@@ -8,8 +8,8 @@ import (
 
 func builtinToolProfiles() []ToolProfile {
 	return []ToolProfile{
-		{ID: "builtin-argocd", Type: "argocd", Name: "Argo CD", MatchText: "argocd", RecommendedTemplateIDs: []string{"argocd-control-plane-read-only"}, Builtin: true},
-		{ID: "builtin-jenkins", Type: "jenkins", Name: "Jenkins", MatchText: "jenkins", RecommendedTemplateIDs: []string{"jenkins-agent-manager", "jenkins-namespace-deployer"}, Builtin: true},
+		{ID: "builtin-argocd", Type: "argocd", Name: "Argo CD", MatchText: "argocd", RecommendedTemplateIDs: []string{"argocd-control-plane"}, Builtin: true},
+		{ID: "builtin-jenkins", Type: "jenkins", Name: "Jenkins", MatchText: "jenkins", RecommendedTemplateIDs: []string{"jenkins-agent-manager", "jenkins-namespace-edit"}, Builtin: true},
 		{ID: "builtin-prometheus", Type: "prometheus", Name: "Prometheus", MatchText: "prometheus", RecommendedTemplateIDs: []string{"prometheus-cluster-reader", "prometheus-namespace-reader"}, Builtin: true},
 		{ID: "builtin-loki", Type: "loki", Name: "Loki", MatchText: "loki", RecommendedTemplateIDs: []string{"loki-namespace-reader"}, Builtin: true},
 		{ID: "builtin-log-collector", Type: "log-collector", Name: "Log Collector", MatchText: "promtail,grafana-agent,alloy", RecommendedTemplateIDs: []string{"promtail-cluster-metadata-reader"}, Builtin: true},

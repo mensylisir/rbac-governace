@@ -7,14 +7,14 @@ func builtins() []Template {
 	}
 	return []Template{
 		{
-			ID: "argocd-tenant-namespace-deployer", Tool: "argocd", Name: "Argo CD tenant namespace deployer",
-			Description: "Legacy single-namespace template. Prefer the tenant project template for new Argo CD tenants.",
+			ID: "namespace-editor", Tool: "common", Name: "Namespace 编辑权限",
+			Description: "Grants full edit access to common resources in a specific namespace.",
 			Scope:       "namespace", RiskLevel: "medium", Builtin: true, Params: commonParams,
-			Resources: []TemplateResource{{Kind: "ClusterRole", Template: namespaceDeployerClusterRole("argocd-tenant-namespace-deployer")}, {Kind: "RBACDefinition", Template: rbacDefinition("argocd-tenant-sync", "argocd-tenant-namespace-deployer")}},
+			Resources: []TemplateResource{{Kind: "ClusterRole", Template: namespaceEditClusterRole("namespace-editor")}, {Kind: "RBACDefinition", Template: rbacDefinition("namespace-editor", "namespace-editor")}},
 		},
 		{
-			ID: "argocd-control-plane-read-only", Tool: "argocd", Name: "Argo CD control-plane read-only baseline",
-			Description: "Base Argo CD controller template for a new installation. Grants read/watch only through RBAC Manager. Tenant ServiceAccounts and AppProjects are configured separately.",
+			ID: "argocd-control-plane", Tool: "argocd", Name: "Argo CD 控制面权限",
+			Description: "Replaces the default wildcard permissions for argocd-application-controller with read-only get/list/watch across all resources.",
 			Scope:       "cluster", RiskLevel: "medium", Builtin: true,
 			Params: []TemplateParam{
 				{Name: "namespace", Label: "Argo CD Namespace", Required: true},
@@ -26,7 +26,7 @@ func builtins() []Template {
 			},
 		},
 		{
-			ID: "argocd-tenant-sync-project", Tool: "argocd", Name: "Argo CD tenant sync project",
+			ID: "argocd-static-tenant", Tool: "argocd", Name: "Argo CD 静态租户权限",
 			Description: "Creates one Argo CD tenant sync ServiceAccount, AppProject, namespace-scoped tenant RBAC, and the exact controller impersonation permission for that tenant.",
 			Scope:       "mixed", RiskLevel: "high", Builtin: true,
 			Params: []TemplateParam{
@@ -39,15 +39,15 @@ func builtins() []Template {
 			Resources: []TemplateResource{
 				{Kind: "ServiceAccount", Template: argocdCentralTenantSyncServiceAccount},
 				{Kind: "AppProject", Template: argocdTenantAppProject},
-				{Kind: "ClusterRole", Template: namespaceDeployerClusterRole("argocd-tenant-sync-project")},
+				{Kind: "ClusterRole", Template: namespaceEditClusterRole("argocd-static-tenant")},
 				{Kind: "RBACDefinition", Template: argocdTenantSyncRBACDefinition},
 				{Kind: "Role", Template: argocdTenantImpersonateRole},
 				{Kind: "RBACDefinition", Template: argocdControllerImpersonateRBACDefinition},
 			},
 		},
 		{
-			ID: "argocd-tenant-dynamic-namespaces", Tool: "argocd", Name: "Argo CD tenant dynamic namespaces",
-			Description: "Creates a tenant AppProject for a namespace pattern and grants the tenant ServiceAccount access to namespaces selected by label through RBAC Manager.",
+			ID: "argocd-dynamic-tenant", Tool: "argocd", Name: "Argo CD 动态租户权限",
+			Description: "Creates a tenant AppProject and grants the tenant ServiceAccount access to namespaces selected by label through RBAC Manager.",
 			Scope:       "mixed", RiskLevel: "high", Builtin: true,
 			Params: []TemplateParam{
 				{Name: "namespace", Label: "Argo CD Namespace", Required: true},
@@ -62,27 +62,10 @@ func builtins() []Template {
 			Resources: []TemplateResource{
 				{Kind: "ServiceAccount", Template: argocdCentralTenantSyncServiceAccount},
 				{Kind: "AppProject", Template: argocdDynamicTenantAppProject},
-				{Kind: "ClusterRole", Template: namespaceDeployerClusterRole("argocd-tenant-sync-project")},
+				{Kind: "ClusterRole", Template: namespaceEditClusterRole("argocd-dynamic-tenant")},
 				{Kind: "RBACDefinition", Template: argocdDynamicTenantSyncRBACDefinition},
 				{Kind: "Role", Template: argocdTenantImpersonateRole},
 				{Kind: "RBACDefinition", Template: argocdDynamicControllerImpersonateRBACDefinition},
-			},
-		},
-		{
-			ID: "argocd-control-plane-read-impersonate", Tool: "argocd", Name: "Argo CD control-plane read and impersonate",
-			Description: "Grants Argo CD read/watch permissions and namespace-scoped impersonation of a specific tenant ServiceAccount. AppProject changes are still required.",
-			Scope:       "mixed", RiskLevel: "high", Builtin: true,
-			Params: []TemplateParam{
-				{Name: "namespace", Label: "Argo CD Namespace", Required: true},
-				{Name: "serviceAccount", Label: "Argo CD Controller ServiceAccount", Required: true},
-				{Name: "targetNamespace", Label: "Tenant SA Namespace", Required: true},
-				{Name: "targetServiceAccount", Label: "Tenant SA", Required: true},
-			},
-			Resources: []TemplateResource{
-				{Kind: "ClusterRole", Template: argocdControllerReadClusterRole},
-				{Kind: "RBACDefinition", Template: argocdControlPlaneReadRBACDefinition},
-				{Kind: "Role", Template: argocdControlPlaneImpersonateRole},
-				{Kind: "RBACDefinition", Template: argocdControlPlaneImpersonateRBACDefinition},
 			},
 		},
 		{
@@ -92,10 +75,10 @@ func builtins() []Template {
 			Resources: []TemplateResource{{Kind: "ClusterRole", Template: jenkinsAgentClusterRole}, {Kind: "RBACDefinition", Template: rbacDefinition("jenkins-agent", "jenkins-agent-manager")}},
 		},
 		{
-			ID: "jenkins-namespace-deployer", Tool: "jenkins", Name: "Jenkins namespace deployer",
+			ID: "jenkins-namespace-edit", Tool: "jenkins", Name: "Jenkins namespace edit",
 			Description: "Lets Jenkins deploy common workload resources in one namespace.",
 			Scope:       "namespace", RiskLevel: "medium", Builtin: true, Params: commonParams,
-			Resources: []TemplateResource{{Kind: "ClusterRole", Template: namespaceDeployerClusterRole("jenkins-namespace-deployer")}, {Kind: "RBACDefinition", Template: rbacDefinition("jenkins-deploy", "jenkins-namespace-deployer")}},
+			Resources: []TemplateResource{{Kind: "ClusterRole", Template: namespaceEditClusterRole("jenkins-namespace-edit")}, {Kind: "RBACDefinition", Template: rbacDefinition("jenkins-deploy", "jenkins-namespace-edit")}},
 		},
 		{
 			ID: "prometheus-cluster-reader", Tool: "prometheus", Name: "Prometheus cluster reader",
@@ -124,7 +107,7 @@ func builtins() []Template {
 	}
 }
 
-func namespaceDeployerClusterRole(name string) string {
+func namespaceEditClusterRole(name string) string {
 	return `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -237,23 +220,23 @@ spec:
 const argocdTenantSyncRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
 metadata:
-  name: {{ dns .targetNamespace }}-argocd-tenant-sync-project
+  name: {{ dns .targetNamespace }}-argocd-static-tenant
 rbacBindings:
-  - name: {{ dns .targetNamespace }}-{{ dns .serviceAccount }}-argocd-tenant-sync-project
+  - name: {{ dns .targetNamespace }}-{{ dns .serviceAccount }}-argocd-static-tenant
     subjects:
       - kind: ServiceAccount
         name: {{ .serviceAccount }}
         namespace: {{ .namespace }}
     roleBindings:
       - namespace: {{ .targetNamespace }}
-        clusterRole: argocd-tenant-sync-project`
+        clusterRole: argocd-static-tenant`
 
 const argocdDynamicTenantSyncRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
 metadata:
-  name: {{ dns .tenant }}-argocd-tenant-sync-project
+  name: {{ dns .tenant }}-argocd-dynamic-tenant
 rbacBindings:
-  - name: {{ dns .tenant }}-{{ dns .serviceAccount }}-argocd-tenant-sync-project
+  - name: {{ dns .tenant }}-{{ dns .serviceAccount }}-argocd-dynamic-tenant
     subjects:
       - kind: ServiceAccount
         name: {{ .serviceAccount }}
@@ -262,7 +245,7 @@ rbacBindings:
       - namespaceSelector:
           matchLabels:
             {{ .tenantLabelKey }}: {{ .tenantLabelValue }}
-        clusterRole: argocd-tenant-sync-project`
+        clusterRole: argocd-dynamic-tenant`
 
 const argocdControllerReadClusterRole = `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -358,43 +341,6 @@ rbacBindings:
       - clusterRole: ` + clusterRole
 }
 
-const argocdControlPlaneReadRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
-kind: RBACDefinition
-metadata:
-  name: argocd-control-plane-read-{{ dns .namespace }}-{{ dns .serviceAccount }}
-rbacBindings:
-  - name: {{ dns .namespace }}-{{ dns .serviceAccount }}-argocd-control-plane-read
-    subjects:
-      - kind: ServiceAccount
-        name: {{ .serviceAccount }}
-        namespace: {{ .namespace }}
-    clusterRoleBindings:
-      - clusterRole: argocd-controller-read`
-
-const argocdControlPlaneImpersonateRole = `apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: argocd-impersonate-{{ dns .targetServiceAccount }}
-  namespace: {{ .targetNamespace }}
-rules:
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["impersonate"]
-    resourceNames: ["{{ .targetServiceAccount }}"]`
-
-const argocdControlPlaneImpersonateRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
-kind: RBACDefinition
-metadata:
-  name: argocd-control-plane-impersonate-{{ dns .targetNamespace }}-{{ dns .targetServiceAccount }}
-rbacBindings:
-  - name: {{ dns .namespace }}-{{ dns .serviceAccount }}-impersonate-{{ dns .targetNamespace }}-{{ dns .targetServiceAccount }}
-    subjects:
-      - kind: ServiceAccount
-        name: {{ .serviceAccount }}
-        namespace: {{ .namespace }}
-    roleBindings:
-      - namespace: {{ .targetNamespace }}
-        role: argocd-impersonate-{{ dns .targetServiceAccount }}`
 
 const jenkinsAgentClusterRole = `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

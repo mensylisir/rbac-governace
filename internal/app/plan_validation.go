@@ -12,12 +12,12 @@ func (s *Server) validatePlanBestEffort(ctx context.Context, p Plan) Plan {
 	serviceAccountNamespace := p.Params["namespace"]
 	accessNamespace := p.Params["namespace"]
 	serviceAccount := p.Params["serviceAccount"]
-	if p.TemplateID == "argocd-tenant-sync-project" && p.Params["targetNamespace"] != "" && p.Params["serviceAccount"] != "" {
+	if p.TemplateID == "argocd-static-tenant" && p.Params["targetNamespace"] != "" && p.Params["serviceAccount"] != "" {
 		serviceAccountNamespace = p.Params["namespace"]
 		accessNamespace = p.Params["targetNamespace"]
 		serviceAccount = p.Params["serviceAccount"]
 	}
-	if p.TemplateID == "argocd-tenant-dynamic-namespaces" {
+	if p.TemplateID == "argocd-dynamic-tenant" {
 		serviceAccountNamespace = p.Params["namespace"]
 		serviceAccount = p.Params["serviceAccount"]
 		accessNamespace = p.Params["namespacePattern"]
