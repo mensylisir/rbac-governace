@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 type Cluster = { id: string; name: string; context: string; apiServer: string; status: string; message: string; rbacManagerStatus: string; lastScanAt?: string }
 type Finding = { id: string; severity: 'high' | 'medium' | 'low'; title: string; description: string; resource: string; ruleId: string }
@@ -582,7 +582,21 @@ function applyTemplateDefaults() {
   for (const param of selectedTemplateParams.value) {
     if (!params[param.name] && param.default) params[param.name] = param.default
   }
+  if (state.selectedTenantTemplateId === 'argocd-dynamic-tenant' && params.serviceAccount) {
+    params.namespacePattern = `${params.serviceAccount}-*`
+    params.tenant = params.serviceAccount
+    params.tenantLabelValue = params.serviceAccount
+  }
 }
+
+watch(
+  () => params.serviceAccount,
+  () => {
+    if (state.selectedTenantTemplateId === 'argocd-dynamic-tenant') {
+      applyTemplateDefaults()
+    }
+  },
+)
 
 async function previewTemplate() {
   await run(async () => {
@@ -1244,16 +1258,7 @@ onMounted(refresh)
               <div v-if="state.selectedTenantTemplateId === 'argocd-static-tenant'" class="grid two">
                 <label>{{ t.businessNamespace }} <input v-model="params.targetNamespace" placeholder="team-a-prod" /><div class="small muted">{{ t.businessNamespaceHint }}</div></label>
               </div>
-              <div v-if="state.selectedTenantTemplateId === 'argocd-dynamic-tenant'" class="stack">
-                <div class="grid two">
-                  <label>{{ t.tenantName }} <input v-model="params.tenant" placeholder="team-a" /></label>
-                  <label>{{ t.namespacePattern }} <input v-model="params.namespacePattern" placeholder="team-a-*" /><div class="small muted">{{ t.namespacePatternHint }}</div></label>
-                </div>
-                <div class="grid two">
-                  <label>{{ t.tenantLabelKey }} <input v-model="params.tenantLabelKey" placeholder="tenant" /></label>
-                  <label>{{ t.tenantLabelValue }} <input v-model="params.tenantLabelValue" placeholder="team-a" /></label>
-                </div>
-              </div>
+              <div v-if="state.selectedTenantTemplateId === 'argocd-dynamic-tenant'" class="small muted">{{ state.lang === 'zh' ? '命名空间匹配规则和标签将自动从租户标识生成' : 'Namespace pattern and labels are auto-generated from the tenant ID' }}</div>
               <div class="row">
                 <button :disabled="!state.selectedTenantTemplateId" @click="previewTenantPlan">{{ t.previewYaml }}</button>
                 <button class="primary" :disabled="!state.selectedTenantTemplateId" @click="createTenantPlan">{{ t.createPlan }}</button>
