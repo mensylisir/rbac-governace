@@ -54,9 +54,6 @@ func builtins() []Template {
 				{Name: "controllerServiceAccount", Label: "Argo CD Controller ServiceAccount", Required: true},
 				{Name: "serviceAccount", Label: "Tenant Sync ServiceAccount", Required: true},
 				{Name: "tenant", Label: "Tenant name", Required: true},
-				{Name: "namespacePattern", Label: "Allowed namespace pattern", Required: true},
-				{Name: "tenantLabelKey", Label: "Namespace label key", Required: true, Default: "tenant"},
-				{Name: "tenantLabelValue", Label: "Namespace label value", Required: true},
 				{Name: "sourceRepo", Label: "Allowed source repository", Required: true, Default: "*"},
 			},
 			Resources: []TemplateResource{
@@ -188,10 +185,10 @@ spec:
     - '{{ .sourceRepo }}'
   destinations:
     - server: https://kubernetes.default.svc
-      namespace: '{{ .namespacePattern }}'
+      namespace: '*'
   destinationServiceAccounts:
     - server: https://kubernetes.default.svc
-      namespace: '{{ .namespacePattern }}'
+      namespace: '*'
       defaultServiceAccount: {{ .namespace }}:{{ .serviceAccount }}
   namespaceResourceWhitelist:
     - group: ''
@@ -244,7 +241,7 @@ rbacBindings:
     roleBindings:
       - namespaceSelector:
           matchLabels:
-            {{ .tenantLabelKey }}: {{ .tenantLabelValue }}
+            tenant: "{{ .serviceAccount }}"
         clusterRole: argocd-dynamic-tenant`
 
 const argocdControllerReadClusterRole = `apiVersion: rbac.authorization.k8s.io/v1
