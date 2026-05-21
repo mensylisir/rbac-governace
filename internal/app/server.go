@@ -302,13 +302,14 @@ func (s *Server) handleScanCluster(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadGateway, err)
 		return
 	}
+	refs = filterSystemWorkloads(refs)
 	refs = filterWorkloadRefsForUser(user, r.PathValue("id"), refs)
 	tools := []ToolInstance{}
 	profiles := s.store.ListToolProfiles()
 	for _, ref := range refs {
 		if profileType, profileTemplates := matchToolProfile(ref, profiles); profileType != "" {
 			ref.Type = profileType
-			if len(profileTemplates) > 0 {
+			if len(profileTemplates) > 0 && !(ref.Type == "argocd" && !isArgoApplicationController(ref)) {
 				ref.RecommendedTemplateIDs = profileTemplates
 			}
 		}
@@ -317,12 +318,12 @@ func (s *Server) handleScanCluster(w http.ResponseWriter, r *http.Request) {
 		if isArgoApplicationController(ref) {
 			findings = append(findings, argoCDFindings(client.ArgoCDStatus(ctx, ref.Namespace, ref.ServiceAccount), ref)...)
 		}
-		recommendations := recommendedTemplates(ref.Type)
+		recommendations := recommendedTemplates(ref)
 		if len(ref.RecommendedTemplateIDs) > 0 {
 			recommendations = ref.RecommendedTemplateIDs
 		}
-		if ref.Type == "argocd" && !isArgoApplicationController(ref) {
-			recommendations = []string{}
+		if !isGovernableWorkload(ref, findings, recommendations) {
+			continue
 		}
 		tools = append(tools, ToolInstance{
 			ID: ref.Type + "-" + ref.Namespace + "-" + ref.Name, ClusterID: c.ID, Type: ref.Type, Name: ref.Name, Namespace: ref.Namespace,
@@ -526,7 +527,7 @@ func (s *Server) resolveTemplateParams(req *RenderTemplateRequest) error {
 		req.Params = map[string]string{}
 	}
 	switch req.TemplateID {
-	case "argocd-tenant-sync-project", "argocd-tenant-dynamic-namespaces":
+	case "argocd-tenant-sync-project", "argocd-tenant-label-selector":
 		if strings.TrimSpace(req.Params["namespace"]) != "" && strings.TrimSpace(req.Params["controllerServiceAccount"]) != "" {
 			return nil
 		}
@@ -721,6 +722,27 @@ func rbacStatus(found bool) string {
 		return "installed"
 	}
 	return "missing"
+}
+
+var systemNamespaces = map[string]struct{}{
+	"kube-system":        {},
+	"local-path-storage": {},
+	"rbac-manager":       {},
+	"rbac-governance":    {},
+}
+
+func filterSystemWorkloads(refs []kube.WorkloadRef) []kube.WorkloadRef {
+	out := make([]kube.WorkloadRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, ok := systemNamespaces[ref.Namespace]; ok {
+			continue
+		}
+		if ref.Name == "kube-proxy" {
+			continue
+		}
+		out = append(out, ref)
+	}
+	return out
 }
 
 func filterWorkloadRefsForUser(user User, clusterID string, refs []kube.WorkloadRef) []kube.WorkloadRef {

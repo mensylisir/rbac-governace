@@ -461,7 +461,6 @@ const t = computed(() => messages[state.lang])
 const title = computed(() => t.value.views[state.view])
 const subtitle = computed(() => t.value.subtitles[state.view])
 const visibleTools = computed(() => state.tools)
-const hiddenToolCount = computed(() => 0)
 const currentTool = computed(() => state.tools.find((tool) => tool.id === state.selectedToolId) || visibleTools.value[0] || state.tools[0] || null)
 const argoControllerTool = computed(() => state.tools.find((tool) => isArgoControllerTool(tool)) || null)
 const candidateTemplates = computed(() => {
@@ -1142,7 +1141,7 @@ onMounted(refresh)
               <div class="tool-main">
                 <div class="row">
                   <div class="card-title">{{ tool.name }}</div>
-                  <span class="badge">{{ tool.type }}</span>
+                  <span class="badge">{{ tool.type === 'argocd' ? 'Argo CD' : tool.type }}</span>
                   <span class="badge" :class="maxSeverity(tool.findings)">{{ severityLabel(maxSeverity(tool.findings)) }}</span>
                 </div>
                 <div class="meta-line">

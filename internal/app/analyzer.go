@@ -31,15 +31,19 @@ func analyzeRules(tool kube.WorkloadRef, rules []kube.SARule) []Finding {
 		if sr.Binding.Namespace != "" {
 			binding = sr.Binding.Namespace + "/" + binding
 		}
+
+		// Tenant impersonation binding: skip further risk checks for this single binding
+		if tool.Type == "argocd" && argoTenantImpersonationRule(sr) {
+			continue
+		}
+
 		if sr.Binding.RoleKind == "ClusterRole" && sr.Binding.RoleName == "cluster-admin" {
 			add("high", "cluster-admin", "ServiceAccount is bound to cluster-admin", "This grants unrestricted cluster access and should be replaced by a scoped template.", binding)
 		}
-		if hasAny(sr.Rule.Verbs, "*") || hasAny(sr.Rule.Resources, "*") || hasAny(sr.Rule.APIGroups, "*") {
-			if readOnlyVerbs(sr.Rule.Verbs) {
-				add("medium", "read-only-wildcard-rbac", "Broad read-only RBAC permission", "The binding can read a broad set of resources but does not grant write or escalation verbs.", binding)
-			} else {
-				add("high", "wildcard-rbac", "Wildcard RBAC permission", "Wildcard verbs, resources, or API groups make the effective permission hard to audit.", binding)
-			}
+		if hasAny(sr.Rule.Verbs, "*") {
+			add("high", "wildcard-rbac", "Wildcard RBAC permission", "Wildcard verbs grant full read/write access and should be replaced by a scoped template.", binding)
+		} else if (hasAny(sr.Rule.Resources, "*") || hasAny(sr.Rule.APIGroups, "*")) && readOnlyVerbs(sr.Rule.Verbs) {
+			add("low", "read-only-wildcard-rbac", "Broad read-only RBAC permission", "The binding can read a broad set of resources but does not grant write or escalation verbs.", binding)
 		}
 		if hasAny(sr.Rule.Verbs, "create", "update", "patch", "delete", "deletecollection") && len(sr.Rule.Resources) > 0 {
 			if sr.Binding.Kind == "ClusterRoleBinding" {
@@ -57,11 +61,7 @@ func analyzeRules(tool kube.WorkloadRef, rules []kube.SARule) []Finding {
 			add("high", "pod-exec", "Pod exec permission", "Pod exec can be used to access workloads and mounted credentials.", binding)
 		}
 		if hasAny(sr.Rule.Verbs, "bind", "escalate", "impersonate") {
-			if tool.Type == "argocd" && argoTenantImpersonationRule(sr) {
-				add("medium", "argocd-tenant-impersonation", "Argo CD tenant impersonation binding", "This is a tenant sync impersonation binding managed from the Tenants page, not a tool control-plane cleanup candidate.", binding)
-			} else {
-				add("high", "privilege-escalation", "Privilege escalation verb", "The ServiceAccount can bind, escalate, or impersonate privileges.", binding)
-			}
+			add("high", "privilege-escalation", "Privilege escalation verb", "The ServiceAccount can bind, escalate, or impersonate privileges.", binding)
 		}
 	}
 
@@ -90,26 +90,6 @@ func argoCDFindings(status kube.ArgoCDStatus, controller kube.WorkloadRef) []Fin
 			Resource:    controller.Namespace + "/" + controller.ServiceAccount,
 		})
 	}
-	if !status.SyncImpersonation {
-		findings = append(findings, Finding{
-			ID:          newID("finding"),
-			Severity:    "medium",
-			RuleID:      "argocd-sync-impersonation-disabled",
-			Title:       "Sync impersonation is not enabled",
-			Description: "Set application.sync.impersonation.enabled=true in argocd-cm before using AppProject destination ServiceAccounts.",
-			Resource:    "argocd-cm",
-		})
-	}
-	if status.AppProjectsWithDSA == 0 {
-		findings = append(findings, Finding{
-			ID:          newID("finding"),
-			Severity:    "medium",
-			RuleID:      "argocd-no-destination-serviceaccounts",
-			Title:       "No AppProjects use destinationServiceAccounts",
-			Description: "No tenant AppProjects use destinationServiceAccounts yet. Configure tenant ServiceAccounts separately after the control-plane baseline.",
-			Resource:    "AppProject",
-		})
-	}
 	if status.Version != "" && strings.HasPrefix(strings.TrimPrefix(status.Version, "v"), "2.") && !strings.HasPrefix(strings.TrimPrefix(status.Version, "v"), "2.13") {
 		findings = append(findings, Finding{
 			ID:          newID("finding"),
@@ -123,12 +103,15 @@ func argoCDFindings(status kube.ArgoCDStatus, controller kube.WorkloadRef) []Fin
 	return findings
 }
 
-func recommendedTemplates(toolType string) []string {
-	switch strings.ToLower(toolType) {
+func recommendedTemplates(ref kube.WorkloadRef) []string {
+	switch strings.ToLower(ref.Type) {
 	case "argocd":
-		return []string{"argocd-control-plane-read-only"}
+		if isArgoApplicationController(ref) {
+			return []string{"argocd-application-controller-view"}
+		}
+		return []string{}
 	case "jenkins":
-		return []string{"jenkins-agent-manager", "jenkins-namespace-deployer"}
+		return []string{"jenkins-agent-manager", "jenkins-namespace-edit"}
 	case "prometheus":
 		return []string{"prometheus-cluster-reader", "prometheus-namespace-reader"}
 	case "loki":
@@ -138,6 +121,23 @@ func recommendedTemplates(toolType string) []string {
 	default:
 		return []string{}
 	}
+}
+
+func isGovernableWorkload(ref kube.WorkloadRef, findings []Finding, recommendations []string) bool {
+	if ref.Type == "argocd" && !isArgoApplicationController(ref) {
+		return false
+	}
+	if len(recommendations) > 0 {
+		return true
+	}
+	for _, f := range findings {
+		if f.Severity == "high" || f.Severity == "medium" {
+			if f.RuleID != "no-high-risk-rbac" {
+				return true
+			}
+		}
+	}
+	return isArgoApplicationController(ref)
 }
 
 func hasAny(values []string, needles ...string) bool {
