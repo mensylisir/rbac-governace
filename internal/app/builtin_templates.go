@@ -53,7 +53,7 @@ func builtins() []Template {
 				{Name: "namespace", Label: "Argo CD Namespace", Required: true},
 				{Name: "controllerServiceAccount", Label: "Argo CD Controller ServiceAccount", Required: true},
 				{Name: "serviceAccount", Label: "Tenant Sync ServiceAccount", Required: true},
-				{Name: "tenant", Label: "Tenant name", Required: true},
+				{Name: "namespacePattern", Label: "Namespace Pattern", Required: true},
 				{Name: "sourceRepo", Label: "Allowed source repository", Required: true, Default: "*"},
 			},
 			Resources: []TemplateResource{
@@ -178,17 +178,17 @@ spec:
 const argocdDynamicTenantAppProject = `apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: {{ dns .tenant }}-tenant
+  name: {{ dns .serviceAccount }}-tenant
   namespace: {{ .namespace }}
 spec:
   sourceRepos:
     - '{{ .sourceRepo }}'
   destinations:
     - server: https://kubernetes.default.svc
-      namespace: '*'
+      namespace: '{{ .namespacePattern }}'
   destinationServiceAccounts:
     - server: https://kubernetes.default.svc
-      namespace: '*'
+      namespace: '{{ .namespacePattern }}'
       defaultServiceAccount: {{ .namespace }}:{{ .serviceAccount }}
   namespaceResourceWhitelist:
     - group: ''
@@ -231,9 +231,9 @@ rbacBindings:
 const argocdDynamicTenantSyncRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
 metadata:
-  name: {{ dns .tenant }}-argocd-dynamic-tenant
+  name: {{ dns .serviceAccount }}-argocd-dynamic-tenant
 rbacBindings:
-  - name: {{ dns .tenant }}-{{ dns .serviceAccount }}-argocd-dynamic-tenant
+  - name: {{ dns .serviceAccount }}-argocd-dynamic-tenant
     subjects:
       - kind: ServiceAccount
         name: {{ .serviceAccount }}
@@ -296,9 +296,9 @@ rbacBindings:
 const argocdDynamicControllerImpersonateRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
 metadata:
-  name: {{ dns .tenant }}-argocd-controller-impersonate
+  name: {{ dns .serviceAccount }}-argocd-controller-impersonate
 rbacBindings:
-  - name: {{ dns .tenant }}-{{ dns .controllerServiceAccount }}-impersonate
+  - name: {{ dns .serviceAccount }}-{{ dns .controllerServiceAccount }}-impersonate
     subjects:
       - kind: ServiceAccount
         name: {{ .controllerServiceAccount }}
