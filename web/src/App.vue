@@ -473,7 +473,7 @@ const candidateTemplates = computed(() => {
   return state.templates.filter((template) => template.tool === tool.type || recommended.has(template.id))
 })
 const hasToolTemplate = computed(() => candidateTemplates.value.length > 0)
-const tenantTemplates = computed(() => state.templates.filter((template) => template.id === 'argocd-tenant-sync-project' || template.id === 'argocd-tenant-label-selector'))
+const tenantTemplates = computed(() => state.templates.filter((template) => template.id === 'argocd-static-tenant' || template.id === 'argocd-dynamic-tenant'))
 const selectedTemplate = computed(() => state.templates.find((template) => template.id === state.selectedTemplateId) || null)
 const selectedTemplateParams = computed(() => selectedTemplate.value?.params || [])
 const canAdmin = computed(() => state.me?.role === 'platform-admin')
@@ -943,20 +943,20 @@ function localizedParamLabel(param: { name: string; label: string }) {
 
 const templateLocaleMeta: Record<Lang, Record<string, { name: string; description: string }>> = {
   en: {
-    'argocd-tenant-namespace-edit': {
-      name: 'Argo CD tenant namespace edit',
-      description: 'Legacy single-namespace template. Prefer the tenant project template for new Argo CD tenants.',
+    'namespace-editor': {
+      name: 'Namespace editor',
+      description: 'Grants full edit access to common resources in a specific namespace.',
     },
-    'argocd-application-controller-view': {
-      name: 'Argo CD application-controller view',
-      description: 'Replaces default wildcard permissions with read-only get/list/watch across all resources.',
+    'argocd-control-plane': {
+      name: 'Argo CD control-plane permissions',
+      description: 'Grants the Argo CD controller read-only access across the cluster.',
     },
-    'argocd-tenant-sync-project': {
-      name: 'Argo CD tenant sync project',
+    'argocd-static-tenant': {
+      name: 'Argo CD static tenant permissions',
       description: 'Single-namespace tenant. Creates SA in Argo CD namespace, AppProject, and namespace-scoped RBAC.',
     },
-    'argocd-tenant-label-selector': {
-      name: 'Argo CD tenant label selector',
+    'argocd-dynamic-tenant': {
+      name: 'Argo CD dynamic tenant permissions',
       description: 'Multi-namespace tenant. Uses label selector to grant access to dynamic namespaces.',
     },
     'argocd-control-plane-read-impersonate': {
@@ -989,21 +989,21 @@ const templateLocaleMeta: Record<Lang, Record<string, { name: string; descriptio
     },
   },
   zh: {
-    'argocd-tenant-namespace-edit': {
-      name: 'Argo CD 租户命名空间编辑',
-      description: '旧版单命名空间模板。新租户建议优先使用租户项目模板。',
+    'namespace-editor': {
+      name: 'Namespace 编辑权限',
+      description: '授予对指定命名空间中常见资源的完整编辑权限。',
     },
-    'argocd-application-controller-view': {
-      name: 'Argo CD application-controller 只读',
-      description: '将默认通配符权限替换为全集群资源的 get/list/watch 只读权限。',
+    'argocd-control-plane': {
+      name: 'Argo CD 控制面权限',
+      description: '授予 Argo CD 控制器集群范围的只读访问权限。',
     },
-    'argocd-tenant-sync-project': {
-      name: 'Argo CD 租户同步项目',
-      description: '单命名空间租户。在 Argo CD 命名空间创建 SA、AppProject 和命名空间级 RBAC。',
+    'argocd-static-tenant': {
+      name: 'Argo CD 静态租户权限',
+      description: '单命名空间租户。在 Argo CD 命名空间创建 SA、AppProject 及 RBAC。',
     },
-    'argocd-tenant-label-selector': {
-      name: 'Argo CD 租户标签选择器',
-      description: '多命名空间租户。使用标签选择器授予动态命名空间访问权限。',
+    'argocd-dynamic-tenant': {
+      name: 'Argo CD 动态租户权限',
+      description: '多命名空间租户。通过标签选择器授权访问动态命名空间。',
     },
     'argocd-control-plane-read-impersonate': {
       name: 'Argo CD 控制面只读与冒充',
@@ -1233,10 +1233,10 @@ onMounted(refresh)
                 <label>{{ t.tenantServiceAccount }} <input v-model="params.serviceAccount" placeholder="team-a-deployer" /></label>
                 <label>{{ t.sourceRepo }} <input v-model="params.sourceRepo" placeholder="*" /></label>
               </div>
-              <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-sync-project'" class="grid two">
+              <div v-if="state.selectedTenantTemplateId === 'argocd-static-tenant'" class="grid two">
                 <label>{{ t.targetNamespace }} <input v-model="params.targetNamespace" placeholder="team-a" /></label>
               </div>
-              <div v-if="state.selectedTenantTemplateId === 'argocd-tenant-label-selector'" class="stack">
+              <div v-if="state.selectedTenantTemplateId === 'argocd-dynamic-tenant'" class="stack">
                 <div class="grid two">
                   <label>{{ t.tenantName }} <input v-model="params.tenant" placeholder="team-a" /></label>
                   <label>{{ t.namespacePattern }} <input v-model="params.namespacePattern" placeholder="team-a-*" /></label>
