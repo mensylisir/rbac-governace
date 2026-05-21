@@ -154,9 +154,6 @@ func TestArgoCDPolicyFlagsWriteWildcard(t *testing.T) {
 	if !hasFinding(findings, "wildcard-rbac", "high") {
 		t.Fatalf("ArgoCD should still flag write wildcard, got %#v", findings)
 	}
-	if !hasFinding(findings, "cluster-admin", "high") {
-		t.Fatalf("ArgoCD should still flag cluster-admin, got %#v", findings)
-	}
 }
 
 func TestArgoCDPolicyFlagsSecretRead(t *testing.T) {

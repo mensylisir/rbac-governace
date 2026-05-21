@@ -20,6 +20,9 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["get", "list", "watch"]
@@ -70,7 +73,7 @@ spec:
       serviceAccountName: rbac-governance
       containers:
         - name: app
-          image: rbac-governance:latest
+          image: dockerhub.kubekey.local/library/rbac-governance:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

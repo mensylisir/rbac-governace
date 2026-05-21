@@ -277,7 +277,17 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["impersonate"]
-    resourceNames: ["{{ .serviceAccount }}"]`
+    resourceNames: ["{{ .serviceAccount }}"]
+  - apiGroups: [""]
+    resources: ["users"]
+    verbs: ["impersonate"]
+    resourceNames: ["system:serviceaccount:{{ .namespace }}:{{ .serviceAccount }}"]
+  - apiGroups: [""]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+    resourceNames:
+      - "system:serviceaccounts"
+      - "system:serviceaccounts:{{ .namespace }}"`
 
 const argocdControllerImpersonateRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition

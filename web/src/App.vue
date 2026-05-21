@@ -59,6 +59,7 @@ const messages = {
     explicitTenantRequired: 'Select a tenant template and fill tenant, SA, and namespace scope explicitly.',
     tenantControllerHint: 'The Argo CD namespace and controller SA are detected from the scanned application-controller workload.',
     tenantSaLocationHint: 'Tenant SA will be created in the Argo CD namespace ({namespace}) for centralized management.',
+    tabLabels: { governance: 'Tenant Governance', credential: 'Credential Generator', scope: 'Tenant Management' },
     clusterOverview: 'Cluster overview',
     importCluster: 'Import cluster',
     name: 'Name',
@@ -254,6 +255,7 @@ const messages = {
     explicitTenantRequired: '请选择租户模板，并显式填写租户、SA 和命名空间范围。',
     tenantControllerHint: 'Argo CD 命名空间和 controller SA 会从扫描到的 application-controller 工作负载自动获取。',
     tenantSaLocationHint: '租户 SA 将创建在 Argo CD 命名空间（{namespace}）中，便于集中管理。',
+    tabLabels: { governance: '租户治理', credential: '凭证生成', scope: '租户管理' },
     clusterOverview: '集群概览',
     importCluster: '导入集群',
     name: '名称',
@@ -1179,6 +1181,7 @@ onMounted(refresh)
           @create-tenant-plan="createTenantPlan"
           @create-tenant-credential="createTenantCredential"
           @open-tenant-modal="state.showTenantModal = true"
+          @update:params="(p: Record<string, string>) => { Object.assign(params, p) }"
           @update:credential-namespace="(v: string) => { state.credentialNamespace = v }"
           @update:credential-service-account="(v: string) => { state.credentialServiceAccount = v }"
           @update:credential-expiration="(v: number) => { state.credentialExpiration = v }"

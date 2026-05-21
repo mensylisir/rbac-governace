@@ -7,7 +7,7 @@ frontend:
 	npm --prefix web run build
 
 backend:
-	GOCACHE=$(GOCACHE) go build -buildvcs=false -o bin/rbac-manager ./cmd/server
+	CGO_ENABLED=0 GOCACHE=$(GOCACHE) go build -buildvcs=false -o bin/rbac-manager ./cmd/server
 
 test:
 	GOCACHE=$(GOCACHE) go test ./...

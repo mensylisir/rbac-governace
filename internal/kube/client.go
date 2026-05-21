@@ -187,7 +187,7 @@ func (c *Client) CreateServiceAccountToken(ctx context.Context, namespace, servi
 }
 
 func (c *Client) HasRBACManager(ctx context.Context) (bool, error) {
-	for _, gv := range []string{"rbacmanager.reactiveops.io/v1beta1", "rbac-manager.reactiveops.io/v1beta1"} {
+	for _, gv := range []string{"rbacmanager.dev/v1beta1", "rbacmanager.reactiveops.io/v1beta1", "rbac-manager.reactiveops.io/v1beta1"} {
 		resources, err := c.Discovery.ServerResourcesForGroupVersion(gv)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "not found") {
