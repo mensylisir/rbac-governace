@@ -1,20 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import ClusterPanel from './components/ClusterPanel.vue'
+import ToolList from './components/ToolList.vue'
+import GovernancePanel from './components/GovernancePanel.vue'
+import TenantPanel from './components/TenantPanel.vue'
+import TemplatePanel from './components/TemplatePanel.vue'
 
-type Cluster = { id: string; name: string; context: string; apiServer: string; status: string; message: string; rbacManagerStatus: string; lastScanAt?: string }
-type Finding = { id: string; severity: 'high' | 'medium' | 'low'; title: string; description: string; resource: string; ruleId: string }
-type Tool = { id: string; clusterId: string; type: string; name: string; namespace: string; kind: string; serviceAccount: string; labels?: Record<string, string>; findings: Finding[]; recommendedTemplateIds: string[] }
-type Template = { id: string; tool: string; name: string; description: string; scope: string; riskLevel: 'high' | 'medium' | 'low'; builtin: boolean; params: Array<{ name: string; label: string; required: boolean; default?: string; description?: string }>; resources: Array<{ kind: string; template: string }> }
-type ValidationCheck = { allowed: boolean; namespace: string; verb: string; group: string; resource: string; name?: string; reason?: string; serviceAccount: string }
-type ResourceSnapshot = { apiVersion: string; kind: string; namespace?: string; name: string; yaml?: string; exists: boolean }
-type Plan = { id: string; clusterId: string; toolId: string; templateId: string; yaml: string; warnings: string[]; cleanup?: ResourceSnapshot[]; status: string; validation?: ValidationCheck[]; rollback?: ResourceSnapshot[]; createdAt: string; result: string }
-type AuditEvent = { id: string; action: string; clusterId: string; status: string; message: string; createdAt: string }
-type Tenant = { id: string; name: string; clusterIds: string[]; namespaces: string[] }
-type User = { id: string; name: string; role: string; tenantIds: string[] }
-type Me = { id: string; name: string; role: string; tenants: Tenant[] }
-type ToolProfile = { id: string; type: string; name: string; matchText: string; recommendedTemplateIds: string[]; builtin: boolean }
-type TenantCredential = { clusterId: string; namespace: string; serviceAccount: string; expirationSeconds: number; expiresAt?: string; token?: string; kubeconfig?: string }
-type Lang = 'zh' | 'en'
+export type Cluster = { id: string; name: string; context: string; apiServer: string; status: string; message: string; rbacManagerStatus: string; lastScanAt?: string }
+export type Finding = { id: string; severity: 'high' | 'medium' | 'low'; title: string; description: string; resource: string; ruleId: string }
+export type Tool = { id: string; clusterId: string; type: string; name: string; namespace: string; kind: string; serviceAccount: string; labels?: Record<string, string>; findings: Finding[]; recommendedTemplateIds: string[] }
+export type Template = { id: string; tool: string; name: string; description: string; scope: string; riskLevel: 'high' | 'medium' | 'low'; builtin: boolean; params: Array<{ name: string; label: string; required: boolean; default?: string; description?: string }>; resources: Array<{ kind: string; template: string }> }
+export type ValidationCheck = { allowed: boolean; namespace: string; verb: string; group: string; resource: string; name?: string; reason?: string; serviceAccount: string }
+export type ResourceSnapshot = { apiVersion: string; kind: string; namespace?: string; name: string; yaml?: string; exists: boolean }
+export type Plan = { id: string; clusterId: string; toolId: string; templateId: string; yaml: string; warnings: string[]; cleanup?: ResourceSnapshot[]; status: string; validation?: ValidationCheck[]; rollback?: ResourceSnapshot[]; createdAt: string; result: string }
+export type AuditEvent = { id: string; action: string; clusterId: string; status: string; message: string; createdAt: string }
+export type Tenant = { id: string; name: string; clusterIds: string[]; namespaces: string[] }
+export type User = { id: string; name: string; role: string; tenantIds: string[] }
+export type Me = { id: string; name: string; role: string; tenants: Tenant[] }
+export type ToolProfile = { id: string; type: string; name: string; matchText: string; recommendedTemplateIds: string[]; builtin: boolean }
+export type TenantCredential = { clusterId: string; namespace: string; serviceAccount: string; expirationSeconds: number; expiresAt?: string; token?: string; kubeconfig?: string }
+export type Lang = 'zh' | 'en'
 
 const messages = {
   en: {
@@ -1092,51 +1097,21 @@ onMounted(refresh)
 
       <section v-if="state.error" class="finding high error-box"><strong>{{ t.error }}</strong><div>{{ state.error }}</div></section>
 
-      <section v-if="state.view === 'clusters' && canAdmin" class="grid" style="margin-bottom: 14px">
-        <section class="panel">
-          <h2>{{ t.currentUser }}</h2>
-          <div class="kv"><span>{{ t.user }}</span><span>{{ state.me?.name || '-' }}</span><span>{{ t.role }}</span><span>{{ state.me?.role || '-' }}</span></div>
-        </section>
-      </section>
-
-      <section v-if="state.view === 'clusters'" class="grid two">
-        <section class="panel">
-          <h2>{{ t.importCluster }}</h2>
-          <div class="stack">
-            <label>{{ t.name }} <input v-model="importForm.name" placeholder="rbac-manager-test" /></label>
-            <label>{{ t.kubeconfig }} <textarea v-model="importForm.kubeconfig" :placeholder="state.lang === 'zh' ? '粘贴 kubeconfig 内容' : 'Paste kubeconfig here'" /></label>
-            <div class="row">
-              <button class="primary" :disabled="busy" @click="importCluster">{{ t.importAndTest }}</button>
-              <button :disabled="busy" @click="importInCluster">{{ t.useInCluster }}</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2>{{ t.knownClusters }}</h2>
-          <div class="grid">
-            <article v-for="cluster in state.clusters" :key="cluster.id" class="card">
-              <div class="row">
-                <div class="card-title">{{ cluster.name }}</div>
-                <span class="badge" :class="cluster.status === 'connected' ? 'success' : 'high'">{{ statusLabel(cluster.status || 'unknown') }}</span>
-                <span class="badge" :class="cluster.rbacManagerStatus === 'installed' ? 'success' : 'medium'">RBAC Manager {{ statusLabel(cluster.rbacManagerStatus || 'unknown') }}</span>
-              </div>
-              <div class="kv">
-                <span>{{ t.context }}</span><span class="mono">{{ cluster.context || '-' }}</span>
-                <span>{{ t.apiServer }}</span><span class="mono">{{ cluster.apiServer || '-' }}</span>
-                <span>{{ t.lastScan }}</span><span>{{ formatTime(cluster.lastScanAt) }}</span>
-                <span>{{ t.message }}</span><span>{{ messageLabel(cluster.message) }}</span>
-              </div>
-              <div class="row">
-                <button @click="state.selectedClusterId = cluster.id; state.view = 'tools'; onClusterChange()">{{ t.openTools }}</button>
-                <button @click="testCluster(cluster.id)">{{ t.test }}</button>
-                <button class="primary" @click="scanCluster(cluster.id)">{{ t.scan }}</button>
-              </div>
-            </article>
-            <div v-if="!state.clusters.length" class="empty">{{ t.noClusters }}</div>
-          </div>
-        </section>
-      </section>
+      <ClusterPanel
+        v-if="state.view === 'clusters'"
+        :clusters="state.clusters"
+        :can-admin="canAdmin"
+        :me="state.me"
+        :import-form="importForm"
+        :t="t"
+        :lang="state.lang"
+        @import-cluster="importCluster"
+        @import-in-cluster="importInCluster"
+        @test-cluster="testCluster"
+        @scan-cluster="scanCluster"
+        @open-tools="(cluster) => { state.selectedClusterId = cluster.id; state.view = 'tools'; onClusterChange() }"
+        @update:import-form="(v) => Object.assign(importForm, v)"
+      />
 
       <section v-else-if="state.view === 'tools'" class="stack">
         <div class="toolbar">
@@ -1152,216 +1127,75 @@ onMounted(refresh)
         </div>
 
         <div class="tool-layout">
-          <section class="panel tool-list">
-            <div class="section-head">
-              <div>
-                <h2>{{ t.detectedTools }}</h2>
-                <p>{{ visibleTools.length }} {{ countSuffix }}{{ t.detectedTools }}</p>
-              </div>
-            </div>
-            <article v-for="tool in visibleTools" :key="tool.id" class="tool-row" :class="{ active: currentTool?.id === tool.id }" @click="governTool(tool)">
-              <div class="tool-main">
-                <div class="row">
-                  <div class="card-title">{{ tool.name }}</div>
-                  <span class="badge">{{ tool.type === 'argocd' ? 'Argo CD' : tool.type }}</span>
-                  <span class="badge" :class="maxSeverity(tool.findings)">{{ severityLabel(maxSeverity(tool.findings)) }}</span>
-                </div>
-                <div class="meta-line">
-                  <span>{{ t.namespace }}: <strong>{{ tool.namespace }}</strong></span>
-                  <span>{{ t.kind }}: <strong>{{ tool.kind }}</strong></span>
-                  <span>{{ t.serviceAccount }}: <strong class="mono">{{ tool.serviceAccount }}</strong></span>
-                </div>
-                <div class="finding-list">
-                  <div v-for="finding in tool.findings" :key="finding.id" class="finding compact" :class="finding.severity">
-                    <div class="row"><strong>{{ findingTitle(finding) }}</strong><span class="badge" :class="finding.severity">{{ severityLabel(finding.severity) }}</span></div>
-                    <div class="small muted">{{ findingDescription(finding) }}</div>
-                    <div class="small mono">{{ finding.resource }}</div>
-                  </div>
-                </div>
-              </div>
-              <button class="primary" @click.stop="governTool(tool)">{{ t.govern }}</button>
-            </article>
-            <div v-if="!state.tools.length" class="empty">{{ t.noTools }}</div>
-          </section>
-
-          <section class="panel governance-panel">
-            <h2>{{ t.governanceAction }}</h2>
-            <div v-if="currentTool" class="stack">
-              <div class="kv"><span>{{ t.tool }}</span><span>{{ currentTool.name }}</span><span>{{ t.serviceAccount }}</span><span class="mono">{{ currentTool.namespace }}/{{ currentTool.serviceAccount }}</span></div>
-              <label>{{ t.template }}<select v-model="state.selectedTemplateId" @change="onTemplateChange"><option v-if="!hasToolTemplate" value="">{{ t.noTemplatesForTool }}</option><option v-for="template in candidateTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }}</option></select></label>
-              <div class="subsection">
-                <div class="subsection-title">{{ t.templateParameters }}</div>
-                <div class="grid two">
-                  <label v-for="param in selectedTemplateParams" :key="param.name">{{ localizedParamLabel(param) }} <input v-model="params[param.name]" :placeholder="param.default || param.name" /></label>
-                </div>
-              </div>
-              <div v-if="!hasToolTemplate" class="small muted">{{ t.noTemplatesForTool }}</div>
-              <label class="check-row">
-                <input v-model="state.cleanupOldBindings" type="checkbox" />
-                <span><strong>{{ t.cleanupOldBindings }}</strong><small>{{ t.cleanupOldBindingsHelp }}</small></span>
-              </label>
-              <div class="cleanup-list">
-                <div class="subsection-title">{{ t.cleanupCandidates }}</div>
-                <div v-if="cleanupCandidates(currentTool).length" class="pill-row">
-                  <span v-for="item in cleanupCandidates(currentTool)" :key="item" class="badge high mono">{{ item }}</span>
-                </div>
-                <div v-else class="small muted">{{ t.noCleanupBindings }}</div>
-              </div>
-              <div class="row"><button :disabled="!hasToolTemplate" @click="previewTemplate">{{ t.previewYaml }}</button><button class="primary" :disabled="!hasToolTemplate" @click="createPlan">{{ t.createPlan }}</button><button @click="quickCredential(currentTool!)">{{ t.quickCredential }}</button></div>
-              <div v-for="warning in state.warnings" :key="warning" class="finding medium"><strong>{{ t.warning }}</strong><div class="small">{{ warningLabel(warning) }}</div></div>
-              <div class="subsection">
-                <div class="subsection-title">{{ t.proposedYaml }}</div>
-                <p>{{ t.proposedYamlHelp }}</p>
-                <pre>{{ state.renderedYaml || t.previewPlaceholder }}</pre>
-              </div>
-            </div>
-            <div v-else class="empty">{{ t.selectTool }}</div>
-          </section>
+          <ToolList
+            :tools="visibleTools"
+            :current-tool="currentTool"
+            :count-suffix="countSuffix"
+            :t="t"
+            @govern-tool="governTool"
+          />
+          <GovernancePanel
+            :current-tool="currentTool"
+            :candidate-templates="candidateTemplates"
+            :has-tool-template="hasToolTemplate"
+            :selected-template-id="state.selectedTemplateId"
+            :selected-template-params="selectedTemplateParams"
+            :cleanup-old-bindings="state.cleanupOldBindings"
+            :rendered-yaml="state.renderedYaml"
+            :warnings="state.warnings"
+            :t="{ ...t, localizedTemplateName, localizedParamLabel, permissionProfileLabel, warningLabel, lang: state.lang }"
+            :params="params"
+            @template-change="onTemplateChange"
+            @preview="previewTemplate"
+            @create-plan="createPlan"
+            @quick-credential="quickCredential"
+            @update:cleanup-old-bindings="(v) => { state.cleanupOldBindings = v }"
+          />
         </div>
-
       </section>
 
-      <section v-else-if="state.view === 'tenants'" class="stack">
-        <div class="toolbar">
-          <label class="cluster-picker">{{ t.cluster }}
-            <select v-model="state.selectedClusterId" @change="onClusterChange">
-              <option v-for="cluster in state.clusters" :key="cluster.id" :value="cluster.id">{{ cluster.name }}</option>
-            </select>
-          </label>
-          <button v-if="canAdmin" class="primary" @click="state.showTenantModal = true">{{ t.createTenant }}</button>
-        </div>
-
-        <div class="tool-layout">
-          <section class="panel">
-            <div class="section-head">
-              <div>
-                <h2>{{ t.tenantGovernance }}</h2>
-                <p>{{ t.tenantGovernanceHelp }}</p>
-              </div>
-            </div>
-            <div class="stack">
-              <label>{{ t.tenantTemplate }}
-                <select v-model="state.selectedTenantTemplateId" @change="chooseTenantTemplate(state.selectedTenantTemplateId)">
-                  <option value="">{{ t.explicitTenantRequired }}</option>
-                  <option v-for="template in tenantTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }}</option>
-                </select>
-              </label>
-              <div class="small muted">{{ t.tenantControllerHint }}</div>
-              <div v-if="state.selectedTenantTemplateId && params.namespace" class="small warning-hint">⚠️ {{ t.tenantSaLocationHint.replace('{namespace}', params.namespace) }}</div>
-              <div v-if="!state.selectedTenantTemplateId" class="grid two">
-                <label>{{ t.namespace }} <input v-model="params.namespace" placeholder="scan Argo CD first" readonly /></label>
-              </div>
-              <div class="grid two">
-                <label>{{ t.tenantServiceAccount }} <input v-model="params.serviceAccount" placeholder="team-a" /><div class="small muted">{{ t.tenantServiceAccountHint }}</div></label>
-                <label>{{ t.sourceRepo }} <input v-model="params.sourceRepo" placeholder="*" /></label>
-              </div>
-              <div v-if="state.selectedTenantTemplateId === 'argocd-static-tenant'" class="grid two">
-                <label>{{ t.businessNamespace }} <input v-model="params.targetNamespace" placeholder="team-a-prod" /><div class="small muted">{{ t.businessNamespaceHint }}</div></label>
-              </div>
-              <div v-if="state.selectedTenantTemplateId === 'argocd-dynamic-tenant'" class="small muted">{{ state.lang === 'zh' ? '命名空间匹配规则和标签将自动从租户标识生成' : 'Namespace pattern and labels are auto-generated from the tenant ID' }}</div>
-              <div class="row">
-                <button :disabled="!state.selectedTenantTemplateId" @click="previewTenantPlan">{{ t.previewYaml }}</button>
-                <button class="primary" :disabled="!state.selectedTenantTemplateId" @click="createTenantPlan">{{ t.createPlan }}</button>
-              </div>
-              <div v-for="warning in state.warnings" :key="warning" class="finding medium"><strong>{{ t.warning }}</strong><div class="small">{{ warningLabel(warning) }}</div></div>
-            </div>
-          </section>
-
-          <section class="panel governance-panel">
-            <h2>{{ t.proposedYaml }}</h2>
-            <p>{{ t.proposedYamlHelp }}</p>
-            <pre>{{ state.renderedYaml || t.previewPlaceholder }}</pre>
-          </section>
-        </div>
-
-        <section class="panel">
-          <div class="section-head">
-            <div>
-              <h2>{{ t.tenantCredential }}</h2>
-              <p>{{ t.credentialHelp }}</p>
-            </div>
-          </div>
-          <div class="grid two">
-            <label>{{ t.credentialNamespace }} <input v-model="state.credentialNamespace" placeholder="team-a" /></label>
-            <label>{{ t.credentialServiceAccount }} <input v-model="state.credentialServiceAccount" placeholder="team-a-deployer" /></label>
-            <label>{{ t.credentialExpiration }} <input v-model.number="state.credentialExpiration" type="number" min="600" max="86400" step="600" /></label>
-            <label>{{ t.credentialFormat }}
-              <select v-model="state.credentialFormat">
-                <option value="kubeconfig">kubeconfig</option>
-                <option value="token">token</option>
-              </select>
-            </label>
-          </div>
-          <div class="row"><button class="primary" :disabled="!state.selectedClusterId || !state.credentialNamespace || !state.credentialServiceAccount" @click="createTenantCredential">{{ t.generateCredential }}</button></div>
-          <div v-if="state.tenantCredentialOutput" class="subsection">
-            <div class="subsection-title">{{ t.credentialOutput }}</div>
-            <p v-if="state.tenantCredentialExpiresAt">{{ t.credentialExpires }}: {{ formatTime(state.tenantCredentialExpiresAt) }}</p>
-            <pre>{{ state.tenantCredentialOutput }}</pre>
-          </div>
-        </section>
-
-        <section v-if="canAdmin" class="panel">
-          <div class="section-head">
-            <div>
-              <h2>{{ t.tenantScope }}</h2>
-              <p>{{ state.lang === 'zh' ? '页面访问范围和租户同步权限是两层能力：这里管理页面可见范围，上方管理 Argo CD 租户同步权限。' : 'UI access scope and tenant sync permissions are separate layers. This section controls visibility; the form above controls Argo CD tenant sync permissions.' }}</p>
-            </div>
-          </div>
-          <div class="grid three">
-            <article v-for="tenant in state.tenants" :key="tenant.id" class="card">
-              <div class="row"><strong>{{ tenant.name }}</strong><span class="badge low">{{ tenant.id }}</span></div>
-              <div class="small muted">{{ t.tenantClusters }}: {{ tenant.clusterIds.join(', ') || '-' }}</div>
-              <div class="small muted">{{ t.tenantNamespaces }}: {{ tenant.namespaces.join(', ') || '-' }}</div>
-            </article>
-          </div>
-        </section>
+      <section v-else-if="state.view === 'tenants'">
+        <TenantPanel
+          :clusters="state.clusters"
+          :selected-cluster-id="state.selectedClusterId"
+          :tenant-templates="tenantTemplates"
+          :selected-tenant-template-id="state.selectedTenantTemplateId"
+          :params="params"
+          :rendered-yaml="state.renderedYaml"
+          :warnings="state.warnings"
+          :credential-namespace="state.credentialNamespace"
+          :credential-service-account="state.credentialServiceAccount"
+          :credential-expiration="state.credentialExpiration"
+          :credential-format="state.credentialFormat"
+          :tenant-credential-output="state.tenantCredentialOutput"
+          :tenant-credential-expires-at="state.tenantCredentialExpiresAt"
+          :tenants="state.tenants"
+          :can-admin="canAdmin"
+          :lang="state.lang"
+          :t="{ ...t, localizedTemplateName, warningLabel }"
+          @cluster-change="onClusterChange"
+          @tenant-template-change="chooseTenantTemplate"
+          @preview-tenant-plan="previewTenantPlan"
+          @create-tenant-plan="createTenantPlan"
+          @create-tenant-credential="createTenantCredential"
+          @open-tenant-modal="state.showTenantModal = true"
+          @update:credential-namespace="(v: string) => { state.credentialNamespace = v }"
+          @update:credential-service-account="(v: string) => { state.credentialServiceAccount = v }"
+          @update:credential-expiration="(v: number) => { state.credentialExpiration = v }"
+          @update:credential-format="(v: string) => { state.credentialFormat = v }"
+        />
       </section>
 
-      <section v-else-if="state.view === 'templates'" class="stack">
-        <section class="panel template-catalog-panel">
-          <div class="section-head">
-            <div>
-              <h2>{{ t.templateCatalog }}</h2>
-              <p>{{ t.templateCatalogHelp }}</p>
-            </div>
-            <button v-if="canAdmin" class="primary" @click="state.showTemplateModal = true">{{ t.createTemplate }}</button>
-          </div>
-          <div class="template-summary-grid">
-            <div class="template-summary"><span>{{ t.builtinTemplates }}</span><strong>{{ builtinTemplates.length }}</strong></div>
-            <div class="template-summary"><span>{{ t.customTemplates }}</span><strong>{{ customTemplates.length }}</strong></div>
-          </div>
-          <div class="template-table">
-            <div class="template-section-title">{{ t.builtinTemplates }}</div>
-            <article v-for="template in builtinTemplates" :key="template.id" class="template-row">
-              <div>
-                <div class="card-title">{{ template.tool }} · {{ permissionProfileLabel(template) }} — {{ localizedTemplateName(template) }}</div>
-                <p>{{ localizedTemplateDescription(template) }}</p>
-                <div class="small muted mono">{{ template.id }}</div>
-              </div>
-              <div class="template-meta">
-                <span class="badge">{{ template.tool }}</span>
-                <span class="badge">{{ permissionProfileLabel(template) }}</span>
-                <span class="badge">{{ scopeText[template.scope] || template.scope }}</span>
-              </div>
-              <button @click="openTemplatePreview(template)">{{ t.preview }}</button>
-            </article>
-            <div class="template-section-title">{{ t.customTemplates }}</div>
-            <article v-for="template in customTemplates" :key="template.id" class="template-row">
-              <div>
-                <div class="card-title">{{ template.tool }} · {{ permissionProfileLabel(template) }} — {{ localizedTemplateName(template) }}</div>
-                <p>{{ localizedTemplateDescription(template) }}</p>
-                <div class="small muted mono">{{ template.id }}</div>
-              </div>
-              <div class="template-meta">
-                <span class="badge">{{ template.tool }}</span>
-                <span class="badge">{{ permissionProfileLabel(template) }}</span>
-                <span class="badge">{{ scopeText[template.scope] || template.scope }}</span>
-              </div>
-              <button @click="openTemplatePreview(template)">{{ t.preview }}</button>
-            </article>
-            <div v-if="!customTemplates.length" class="empty compact-empty">{{ t.noCustomTemplates }}</div>
-          </div>
-        </section>
+      <section v-else-if="state.view === 'templates'">
+        <TemplatePanel
+          :builtin-templates="builtinTemplates"
+          :custom-templates="customTemplates"
+          :can-admin="canAdmin"
+          :scope-text="scopeText"
+          :t="{ ...t, localizedTemplateName, localizedTemplateDescription, permissionProfileLabel }"
+          @open-template-modal="state.showTemplateModal = true"
+          @open-template-preview="openTemplatePreview"
+        />
       </section>
 
       <section v-else-if="state.view === 'plans'" class="grid">
