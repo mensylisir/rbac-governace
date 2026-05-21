@@ -42,8 +42,12 @@ const messages = {
     tenantGovernance: 'Tenant governance',
     tenantGovernanceHelp: 'Use this page after the Argo CD control-plane baseline. It creates tenant ServiceAccounts and AppProjects explicitly; nothing is created by default for a new Argo CD.',
     tenantTemplate: 'Tenant template',
-    tenantServiceAccount: 'Tenant sync SA',
-    namespacePattern: 'Namespace pattern',
+    tenantServiceAccount: 'Tenant ID',
+    tenantServiceAccountHint: 'This name will be created as a ServiceAccount in the ArgoCD namespace',
+    businessNamespace: 'Business Namespace',
+    businessNamespaceHint: 'The target namespace this tenant will manage',
+    namespacePattern: 'Namespace Match Rule',
+    namespacePatternHint: 'All namespaces matching this rule will automatically be granted access',
     tenantLabelKey: 'Namespace label key',
     tenantLabelValue: 'Namespace label value',
     sourceRepo: 'Allowed source repository',
@@ -233,8 +237,12 @@ const messages = {
     tenantGovernance: '租户治理',
     tenantGovernanceHelp: '该页面在 Argo CD 控制面基线完成后使用。租户 ServiceAccount 和 AppProject 必须显式创建，全新 Argo CD 不会默认创建 team-a。',
     tenantTemplate: '租户模板',
-    tenantServiceAccount: '租户同步 SA',
-    namespacePattern: '命名空间模式',
+    tenantServiceAccount: '租户标识 (SA 名称)',
+    tenantServiceAccountHint: '该名称将作为 ServiceAccount 创建在 ArgoCD 命名空间中',
+    businessNamespace: '业务命名空间',
+    businessNamespaceHint: '该租户将管理的目标命名空间',
+    namespacePattern: '命名空间匹配规则',
+    namespacePatternHint: '所有匹配此规则的命名空间将自动获得授权',
     tenantLabelKey: '命名空间标签键',
     tenantLabelValue: '命名空间标签值',
     sourceRepo: '允许的 Git 仓库',
@@ -928,11 +936,11 @@ function localizedParamLabel(param: { name: string; label: string }) {
     zh: {
       namespace: 'Argo CD 命名空间',
       controllerServiceAccount: 'Argo CD Controller ServiceAccount',
-      serviceAccount: '租户同步 ServiceAccount',
-      targetNamespace: '租户命名空间',
+      serviceAccount: '租户标识 (SA 名称)',
+      targetNamespace: '业务命名空间',
       targetServiceAccount: '目标 ServiceAccount',
       tenant: '租户名称',
-      namespacePattern: '允许的命名空间模式',
+      namespacePattern: '命名空间匹配规则',
       tenantLabelKey: '命名空间标签键',
       tenantLabelValue: '命名空间标签值',
       sourceRepo: '允许的 Git 仓库',
@@ -1226,20 +1234,20 @@ onMounted(refresh)
               </label>
               <div class="small muted">{{ t.tenantControllerHint }}</div>
               <div v-if="state.selectedTenantTemplateId && params.namespace" class="small warning-hint">⚠️ {{ t.tenantSaLocationHint.replace('{namespace}', params.namespace) }}</div>
-              <div class="grid two">
+              <div v-if="!state.selectedTenantTemplateId" class="grid two">
                 <label>{{ t.namespace }} <input v-model="params.namespace" placeholder="scan Argo CD first" readonly /></label>
               </div>
               <div class="grid two">
-                <label>{{ t.tenantServiceAccount }} <input v-model="params.serviceAccount" placeholder="team-a-deployer" /></label>
+                <label>{{ t.tenantServiceAccount }} <input v-model="params.serviceAccount" placeholder="team-a" /><div class="small muted">{{ t.tenantServiceAccountHint }}</div></label>
                 <label>{{ t.sourceRepo }} <input v-model="params.sourceRepo" placeholder="*" /></label>
               </div>
               <div v-if="state.selectedTenantTemplateId === 'argocd-static-tenant'" class="grid two">
-                <label>{{ t.targetNamespace }} <input v-model="params.targetNamespace" placeholder="team-a" /></label>
+                <label>{{ t.businessNamespace }} <input v-model="params.targetNamespace" placeholder="team-a-prod" /><div class="small muted">{{ t.businessNamespaceHint }}</div></label>
               </div>
               <div v-if="state.selectedTenantTemplateId === 'argocd-dynamic-tenant'" class="stack">
                 <div class="grid two">
                   <label>{{ t.tenantName }} <input v-model="params.tenant" placeholder="team-a" /></label>
-                  <label>{{ t.namespacePattern }} <input v-model="params.namespacePattern" placeholder="team-a-*" /></label>
+                  <label>{{ t.namespacePattern }} <input v-model="params.namespacePattern" placeholder="team-a-*" /><div class="small muted">{{ t.namespacePatternHint }}</div></label>
                 </div>
                 <div class="grid two">
                   <label>{{ t.tenantLabelKey }} <input v-model="params.tenantLabelKey" placeholder="tenant" /></label>
