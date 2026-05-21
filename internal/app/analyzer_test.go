@@ -31,16 +31,26 @@ func TestAnalyzeNonWildcardReadOnlyIsNoRisk(t *testing.T) {
 	}
 }
 
-func TestAnalyzeBroadReadOnlyWildcardIsLowRisk(t *testing.T) {
+func TestAnalyzeArgoCDReadOnlyWildcardIsExempt(t *testing.T) {
 	findings := analyzeRules(kube.WorkloadRef{Type: "argocd", Namespace: "argocd", ServiceAccount: "argocd-application-controller"}, []kube.SARule{{
 		Binding: kube.BindingRef{Kind: "ClusterRoleBinding", Name: "argocd-controller-read", RoleKind: "ClusterRole", RoleName: "argocd-controller-read"},
 		Rule:    rbacv1.PolicyRule{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get", "list", "watch"}},
 	}})
-	if !hasFinding(findings, "read-only-wildcard-rbac", "low") {
-		t.Fatalf("expected low read-only wildcard finding, got %#v", findings)
+	if hasFinding(findings, "read-only-wildcard-rbac", "low") {
+		t.Fatalf("ArgoCD should exempt read-only wildcard, got %#v", findings)
 	}
-	if hasFinding(findings, "wildcard-rbac", "high") {
-		t.Fatalf("read-only wildcard should not be treated as high-risk wildcard, got %#v", findings)
+	if !hasFinding(findings, "no-high-risk-rbac", "low") {
+		t.Fatalf("expected low-risk summary for ArgoCD with only read-only wildcard, got %#v", findings)
+	}
+}
+
+func TestAnalyzeNonArgoCDReadOnlyWildcardIsLowRisk(t *testing.T) {
+	findings := analyzeRules(kube.WorkloadRef{Type: "prometheus", Namespace: "monitoring", ServiceAccount: "prometheus"}, []kube.SARule{{
+		Binding: kube.BindingRef{Kind: "ClusterRoleBinding", Name: "prometheus-read", RoleKind: "ClusterRole", RoleName: "prometheus-read"},
+		Rule:    rbacv1.PolicyRule{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get", "list", "watch"}},
+	}})
+	if !hasFinding(findings, "read-only-wildcard-rbac", "low") {
+		t.Fatalf("expected low read-only wildcard finding for non-ArgoCD workload, got %#v", findings)
 	}
 }
 
@@ -110,4 +120,69 @@ func TestRecommendedTemplates(t *testing.T) {
 			t.Fatalf("expected [argocd-control-plane], got %v", templates)
 		}
 	})
+}
+
+func TestGetPolicy(t *testing.T) {
+	t.Run("returns ArgoCDPolicy for argocd type", func(t *testing.T) {
+		policy := GetPolicy("argocd")
+		if _, ok := policy.(ArgoCDPolicy); !ok {
+			t.Fatal("expected ArgoCDPolicy for argocd type")
+		}
+	})
+
+	t.Run("returns DefaultPolicy for unknown type", func(t *testing.T) {
+		policy := GetPolicy("unknown")
+		if _, ok := policy.(DefaultPolicy); !ok {
+			t.Fatal("expected DefaultPolicy for unknown type")
+		}
+	})
+
+	t.Run("returns DefaultPolicy for empty type", func(t *testing.T) {
+		policy := GetPolicy("")
+		if _, ok := policy.(DefaultPolicy); !ok {
+			t.Fatal("expected DefaultPolicy for empty type")
+		}
+	})
+}
+
+func TestArgoCDPolicyFlagsWriteWildcard(t *testing.T) {
+	policy := ArgoCDPolicy{}
+	findings := policy.Analyze(kube.WorkloadRef{Type: "argocd", Namespace: "argocd", ServiceAccount: "argocd-application-controller"}, []kube.SARule{{
+		Binding: kube.BindingRef{Kind: "ClusterRoleBinding", Name: "argocd-admin", RoleKind: "ClusterRole", RoleName: "argocd-admin"},
+		Rule:    rbacv1.PolicyRule{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"*"}},
+	}})
+	if !hasFinding(findings, "wildcard-rbac", "high") {
+		t.Fatalf("ArgoCD should still flag write wildcard, got %#v", findings)
+	}
+	if !hasFinding(findings, "cluster-admin", "high") {
+		t.Fatalf("ArgoCD should still flag cluster-admin, got %#v", findings)
+	}
+}
+
+func TestArgoCDPolicyFlagsSecretRead(t *testing.T) {
+	policy := ArgoCDPolicy{}
+	findings := policy.Analyze(kube.WorkloadRef{Type: "argocd", Namespace: "argocd", ServiceAccount: "argocd-application-controller"}, []kube.SARule{{
+		Binding: kube.BindingRef{Kind: "ClusterRoleBinding", Name: "argocd-secret-read", RoleKind: "ClusterRole", RoleName: "argocd-secret-read"},
+		Rule:    rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list"}},
+	}})
+	if !hasFinding(findings, "secret-read", "high") {
+		t.Fatalf("ArgoCD should flag cluster-level secret read, got %#v", findings)
+	}
+}
+
+func TestArgoCDPolicyExemptRuleIDs(t *testing.T) {
+	policy := ArgoCDPolicy{}
+	exempts := policy.ExemptRuleIDs()
+	if _, ok := exempts["read-only-wildcard-rbac"]; !ok {
+		t.Fatal("ArgoCDPolicy should exempt read-only-wildcard-rbac")
+	}
+	if _, ok := exempts["wildcard-rbac"]; ok {
+		t.Fatal("ArgoCDPolicy should not exempt wildcard-rbac (write)")
+	}
+	if _, ok := exempts["secret-read"]; ok {
+		t.Fatal("ArgoCDPolicy should not exempt secret-read")
+	}
+	if _, ok := exempts["cluster-admin"]; ok {
+		t.Fatal("ArgoCDPolicy should not exempt cluster-admin")
+	}
 }
