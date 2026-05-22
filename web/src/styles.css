@@ -50,6 +50,15 @@ nav { display: grid; gap: 6px; }
   padding: 10px 12px;
   font-size: 14px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
 .nav:hover, .nav.active { background: #243044; color: #fff; }
 
@@ -152,6 +161,16 @@ textarea { min-height: 180px; resize: vertical; font-family: ui-monospace, SFMon
 .badge.medium { background: #fff0d6; color: var(--warning); }
 .badge.low { background: #e2f3fb; color: var(--low); }
 .badge.success { background: #e5f6ee; color: var(--success); }
+.badge.secured { background: #e5f6ee; color: var(--success); }
+.badge.needs-action { background: #ffe8e8; color: var(--danger); }
+.badge.in-progress { background: #fff0d6; color: var(--warning); }
+
+.secured-msg {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
 
 .card {
   border: 1px solid var(--line);

@@ -58,8 +58,10 @@ type ToolInstance struct {
 	ServiceAccount         string            `json:"serviceAccount"`
 	Labels                 map[string]string `json:"labels,omitempty"`
 	Findings               []Finding         `json:"findings"`
-	RecommendedTemplateIDs []string          `json:"recommendedTemplateIds"`
-	UpdatedAt              time.Time         `json:"updatedAt"`
+	RecommendedTemplateIDs []string          `json:"recommendedTemplateIds,omitempty"`
+	GovernanceState        string            `json:"governanceState"`
+	BaselineMatched        bool              `json:"baselineMatched"`
+	UpdatedAt              time.Time         `json:"updatedAt,omitempty"`
 }
 
 type ToolProfile struct {

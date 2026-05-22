@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Template } from '../App.vue'
 
 const props = defineProps<{
@@ -36,6 +37,16 @@ function warningLabel(value: string) {
 function updateParam(key: string, value: string) {
   emit('update:params', { ...props.params, [key]: value })
 }
+
+const isNonArgoCDTemplate = computed(() => {
+  return props.selectedTenantTemplateId && !props.selectedTenantTemplateId.startsWith('argocd-')
+})
+
+const toolSaHint = computed(() => {
+  if (props.selectedTenantTemplateId === 'jenkins-agent-manager') return 'jenkins'
+  if (props.selectedTenantTemplateId === 'prometheus-namespace-reader') return 'prometheus'
+  return props.params.serviceAccount || ''
+})
 </script>
 
 <template>
@@ -53,14 +64,18 @@ function updateParam(key: string, value: string) {
           <option v-for="template in tenantTemplates" :key="template.id" :value="template.id">{{ localizedTemplateName(template) }}</option>
         </select>
       </label>
-      <div class="small muted">{{ t.tenantControllerHint }}</div>
-      <div v-if="selectedTenantTemplateId && params.namespace" class="small warning-hint">
+      <div v-if="!isNonArgoCDTemplate" class="small muted">{{ t.tenantControllerHint }}</div>
+      <div v-if="!isNonArgoCDTemplate && selectedTenantTemplateId && params.namespace" class="small warning-hint">
         ⚠️ {{ (t.tenantSaLocationHint as string).replace('{namespace}', params.namespace) }}
       </div>
       <div v-if="!selectedTenantTemplateId" class="grid two">
         <label>{{ t.namespace }} <input :value="params.namespace" placeholder="scan Argo CD first" readonly /></label>
       </div>
-      <div class="grid two">
+      <div v-else-if="isNonArgoCDTemplate" class="grid two">
+        <label>{{ t.namespace || 'Namespace' }} <input :value="params.namespace" placeholder="team-a-prod" @input="updateParam('namespace', ($event.target as HTMLInputElement).value)" /></label>
+        <label>{{ t.serviceAccount || 'ServiceAccount' }} <input :value="params.serviceAccount" :placeholder="toolSaHint" @input="updateParam('serviceAccount', ($event.target as HTMLInputElement).value)" /></label>
+      </div>
+      <div v-if="!isNonArgoCDTemplate" class="grid two">
         <label>{{ t.tenantServiceAccount }} <input :value="params.serviceAccount" placeholder="team-a" @input="updateParam('serviceAccount', ($event.target as HTMLInputElement).value)" /><div class="small muted">{{ t.tenantServiceAccountHint }}</div></label>
         <label>{{ t.sourceRepo }} <input :value="params.sourceRepo" placeholder="*" @input="updateParam('sourceRepo', ($event.target as HTMLInputElement).value)" /></label>
       </div>

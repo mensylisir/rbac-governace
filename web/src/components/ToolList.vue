@@ -31,6 +31,15 @@ function findingTitle(finding: Finding) {
 function findingDescription(finding: Finding) {
   return (props.t.findingDesc as Record<string, string>)[finding.ruleId] || finding.description
 }
+
+function governanceStateLabel(state: string) {
+  const labels = props.t.governanceState as Record<string, string> | undefined
+  return labels?.[state] || state
+}
+
+function governanceStateClass(state: string) {
+  return state
+}
 </script>
 
 <template>
@@ -52,19 +61,24 @@ function findingDescription(finding: Finding) {
         <div class="row">
           <div class="card-title">{{ tool.name }}</div>
           <span class="badge">{{ tool.type === 'argocd' ? 'Argo CD' : tool.type }}</span>
-          <span class="badge" :class="maxSeverity(tool.findings)">{{ severityLabel(maxSeverity(tool.findings)) }}</span>
+          <span v-if="tool.governanceState" class="badge" :class="governanceStateClass(tool.governanceState)">{{ governanceStateLabel(tool.governanceState) }}</span>
+          <span v-else class="badge" :class="maxSeverity(tool.findings)">{{ severityLabel(maxSeverity(tool.findings)) }}</span>
         </div>
         <div class="meta-line">
           <span>{{ t.namespace }}: <strong>{{ tool.namespace }}</strong></span>
           <span>{{ t.kind }}: <strong>{{ tool.kind }}</strong></span>
           <span>{{ t.serviceAccount }}: <strong class="mono">{{ tool.serviceAccount }}</strong></span>
         </div>
-        <div class="finding-list">
+        <div v-if="tool.findings.length > 0" class="finding-list">
           <div v-for="finding in tool.findings" :key="finding.id" class="finding compact" :class="finding.severity">
             <div class="row"><strong>{{ findingTitle(finding) }}</strong><span class="badge" :class="finding.severity">{{ severityLabel(finding.severity) }}</span></div>
             <div class="small muted">{{ findingDescription(finding) }}</div>
             <div class="small mono">{{ finding.resource }}</div>
           </div>
+        </div>
+        <div v-else-if="tool.governanceState === 'secured'" class="secured-msg">
+          <span class="badge secured">{{ governanceStateLabel('secured') }}</span>
+          <div class="small muted">{{ t.securedMessage || '权限已收敛到基线' }}</div>
         </div>
       </div>
       <button class="primary" @click.stop="emit('govern-tool', tool)">{{ t.govern }}</button>

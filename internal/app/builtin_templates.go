@@ -111,7 +111,7 @@ metadata:
   name: ` + name + `
 rules:
   - apiGroups: [""]
-    resources: ["configmaps", "services", "serviceaccounts", "secrets"]
+    resources: ["configmaps", "services", "serviceaccounts", "secrets", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
@@ -121,7 +121,10 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses", "networkpolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]`
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]`
 }
 
 const argocdTenantSyncServiceAccount = `apiVersion: v1
@@ -249,6 +252,9 @@ kind: ClusterRole
 metadata:
   name: argocd-controller-read
 rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["*"]
     resources: ["*"]
     verbs: ["get", "list", "watch"]
@@ -355,10 +361,16 @@ metadata:
   name: jenkins-agent-manager
 rules:
   - apiGroups: [""]
-    resources: ["pods", "pods/log"]
+    resources: ["pods", "pods/log", "pods/status"]
     verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
     resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
     verbs: ["get", "list", "watch"]`
 
 const prometheusClusterReader = `apiVersion: rbac.authorization.k8s.io/v1
@@ -367,7 +379,10 @@ metadata:
   name: prometheus-cluster-reader
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "nodes/metrics", "services", "endpoints", "pods", "namespaces"]
+    resources: ["nodes", "nodes/metrics", "nodes/proxy", "services", "endpoints", "pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "events"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
@@ -384,7 +399,7 @@ metadata:
   name: prometheus-namespace-reader
 rules:
   - apiGroups: [""]
-    resources: ["services", "endpoints", "pods"]
+    resources: ["services", "endpoints", "pods", "configmaps", "secrets", "events"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]

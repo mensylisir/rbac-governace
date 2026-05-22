@@ -80,14 +80,7 @@ func (p ArgoCDPolicy) Analyze(tool kube.WorkloadRef, rules []kube.SARule) []Find
 	}
 
 	if len(findings) == 0 {
-		findings = append(findings, Finding{
-			ID:          newID("finding"),
-			Severity:    "low",
-			RuleID:      "no-high-risk-rbac",
-			Title:       "No high-risk RBAC detected",
-			Description: "No cluster-admin, wildcard, escalation, or broad write permissions were found for this ServiceAccount.",
-			Resource:    tool.Namespace + "/" + tool.ServiceAccount,
-		})
+		return findings
 	}
 	return findings
 }
@@ -147,14 +140,7 @@ func (p DefaultPolicy) Analyze(tool kube.WorkloadRef, rules []kube.SARule) []Fin
 	}
 
 	if len(findings) == 0 {
-		findings = append(findings, Finding{
-			ID:          newID("finding"),
-			Severity:    "low",
-			RuleID:      "no-high-risk-rbac",
-			Title:       "No high-risk RBAC detected",
-			Description: "No cluster-admin, wildcard, escalation, or broad write permissions were found for this ServiceAccount.",
-			Resource:    tool.Namespace + "/" + tool.ServiceAccount,
-		})
+		return findings
 	}
 	return findings
 }

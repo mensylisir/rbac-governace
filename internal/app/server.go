@@ -144,7 +144,8 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant = s.store.PutTenant(tenant)
-	s.audit("tenant.create", "", "", "", "success", tenant.Name)
+	clusterID := s.defaultClusterID()
+	s.audit("tenant.create", clusterID, "", "", "success", tenant.Name)
 	writeJSON(w, http.StatusCreated, tenant)
 }
 
@@ -314,20 +315,40 @@ func (s *Server) handleScanCluster(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rules, _ := client.RulesForServiceAccount(ctx, ref.Namespace, ref.ServiceAccount)
-		findings := analyzeRules(ref, rules)
-		if isArgoApplicationController(ref) {
-			findings = append(findings, argoCDFindings(client.ArgoCDStatus(ctx, ref.Namespace, ref.ServiceAccount), ref)...)
-		}
 		recommendations := recommendedTemplates(ref)
 		if len(ref.RecommendedTemplateIDs) > 0 {
 			recommendations = ref.RecommendedTemplateIDs
 		}
+		baselineRules := extractBaselineRules(recommendations, s.templates, map[string]string{
+			"namespace":              ref.Namespace,
+			"serviceAccount":         ref.ServiceAccount,
+			"controllerServiceAccount": ref.ServiceAccount,
+		})
+		for _, p := range s.store.ListPlans() {
+			if p.ClusterID == c.ID && p.Status == "applied" && strings.HasPrefix(p.TemplateID, "argocd-") && p.Params["controllerServiceAccount"] == ref.ServiceAccount {
+				planRules := extractBaselineRules([]string{p.TemplateID}, s.templates, p.Params)
+				baselineRules = append(baselineRules, planRules...)
+			}
+		}
+		filteredRules := filterBaselineRules(rules, baselineRules)
+		findings := analyzeRules(ref, filteredRules)
+		if isArgoApplicationController(ref) {
+			findings = append(findings, argoCDFindings(client.ArgoCDStatus(ctx, ref.Namespace, ref.ServiceAccount), ref)...)
+		}
 		if !isGovernableWorkload(ref, findings, recommendations) {
 			continue
 		}
+		toolID := ref.Type + "-" + ref.Namespace + "-" + ref.Name
+		govState := ComputeGovernanceState(toolID, c.ID, findings, s.store.ListPlans())
+		baselineMatched := CompareBaseline(rules, recommendations, s.templates, map[string]string{
+			"namespace":              ref.Namespace,
+			"serviceAccount":         ref.ServiceAccount,
+			"controllerServiceAccount": ref.ServiceAccount,
+		})
 		tools = append(tools, ToolInstance{
-			ID: ref.Type + "-" + ref.Namespace + "-" + ref.Name, ClusterID: c.ID, Type: ref.Type, Name: ref.Name, Namespace: ref.Namespace,
+			ID: toolID, ClusterID: c.ID, Type: ref.Type, Name: ref.Name, Namespace: ref.Namespace,
 			Kind: ref.Kind, ServiceAccount: ref.ServiceAccount, Labels: ref.Labels, Findings: findings, RecommendedTemplateIDs: recommendations,
+			GovernanceState: govState, BaselineMatched: baselineMatched,
 		})
 	}
 	if user.Role == RolePlatformAdmin {
@@ -821,4 +842,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func httpError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func (s *Server) defaultClusterID() string {
+	clusters := s.store.ListClusters()
+	if len(clusters) == 0 {
+		return ""
+	}
+	return clusters[0].ID
 }

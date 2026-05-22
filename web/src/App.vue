@@ -8,7 +8,7 @@ import TemplatePanel from './components/TemplatePanel.vue'
 
 export type Cluster = { id: string; name: string; context: string; apiServer: string; status: string; message: string; rbacManagerStatus: string; lastScanAt?: string }
 export type Finding = { id: string; severity: 'high' | 'medium' | 'low'; title: string; description: string; resource: string; ruleId: string }
-export type Tool = { id: string; clusterId: string; type: string; name: string; namespace: string; kind: string; serviceAccount: string; labels?: Record<string, string>; findings: Finding[]; recommendedTemplateIds: string[] }
+export type Tool = { id: string; clusterId: string; type: string; name: string; namespace: string; kind: string; serviceAccount: string; labels?: Record<string, string>; findings: Finding[]; recommendedTemplateIds: string[]; governanceState?: string; baselineMatched?: boolean }
 export type Template = { id: string; tool: string; name: string; description: string; scope: string; riskLevel: 'high' | 'medium' | 'low'; builtin: boolean; params: Array<{ name: string; label: string; required: boolean; default?: string; description?: string }>; resources: Array<{ kind: string; template: string }> }
 export type ValidationCheck = { allowed: boolean; namespace: string; verb: string; group: string; resource: string; name?: string; reason?: string; serviceAccount: string }
 export type ResourceSnapshot = { apiVersion: string; kind: string; namespace?: string; name: string; yaml?: string; exists: boolean }
@@ -60,6 +60,8 @@ const messages = {
     tenantControllerHint: 'The Argo CD namespace and controller SA are detected from the scanned application-controller workload.',
     tenantSaLocationHint: 'Tenant SA will be created in the Argo CD namespace ({namespace}) for centralized management.',
     tabLabels: { governance: 'Tenant Governance', credential: 'Credential Generator', scope: 'Tenant Management' },
+    governanceState: { secured: 'Secured', 'needs-action': 'Needs Action', 'in-progress': 'In Progress' },
+    securedMessage: 'Permissions converged to baseline.',
     clusterOverview: 'Cluster overview',
     importCluster: 'Import cluster',
     name: 'Name',
@@ -256,6 +258,8 @@ const messages = {
     tenantControllerHint: 'Argo CD 命名空间和 controller SA 会从扫描到的 application-controller 工作负载自动获取。',
     tenantSaLocationHint: '租户 SA 将创建在 Argo CD 命名空间（{namespace}）中，便于集中管理。',
     tabLabels: { governance: '租户治理', credential: '凭证生成', scope: '租户管理' },
+    governanceState: { secured: '已治理', 'needs-action': '需治理', 'in-progress': '治理中' },
+    securedMessage: '权限已收敛到基线',
     clusterOverview: '集群概览',
     importCluster: '导入集群',
     name: '名称',
@@ -472,6 +476,14 @@ const params = reactive<Record<string, string>>({
   sourceRepo: '',
 })
 const busy = ref(false)
+const navIcons: Record<string, string> = {
+  clusters: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M28 6H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h24a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zM4 24V8h24v16H4z"/><path d="M6 10h8v2H6zm0 4h12v2H6zm0 4h8v2H6z"/></svg>',
+  tools: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M27 15.54a10.95 10.95 0 0 0 .63-3.54 11 11 0 0 0-11-11 10.95 10.95 0 0 0-3.54.63L11.5 1.5l-2.12 2.12-1.41-1.41L5.85 4.33l-1.41-1.41L2.32 5.04l1.41 1.41L1.61 8.57 3.73 10.7l-1.41 1.41 2.12 2.12 1.41-1.41 2.12 2.12 1.41-1.41A10.95 10.95 0 0 0 11 17a11 11 0 0 0 11 11 10.95 10.95 0 0 0 3.54-.63l2.12 2.12 2.12-2.12-2.12-2.12A10.95 10.95 0 0 0 27 15.54zM16 26a9 9 0 1 1 9-9 9 9 0 0 1-9 9z"/><path d="M18.5 16.5h-5v5h5z"/></svg>',
+  tenants: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M16 14a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0-8a3 3 0 1 1-3 3 3 3 0 0 1 3-3z"/><path d="M26 28H6a2 2 0 0 1-2-2v-4a8 8 0 0 1 8-8h8a8 8 0 0 1 8 8v4a2 2 0 0 1-2 2zM6 26h20v-4a6 6 0 0 0-6-6h-8a6 6 0 0 0-6 6z"/></svg>',
+  templates: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M24 4H8a2 2 0 0 0-2 2v20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM8 26V6h16v20H8z"/><path d="M12 10h8v2h-8zm0 4h8v2h-8zm0 4h5v2h-5z"/></svg>',
+  plans: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M28 6H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h24a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zM4 24V8h24v16H4z"/><path d="M10 12h12v2H10zm0 4h8v2h-8zm0 4h5v2h-5z"/></svg>',
+  audit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M16 2a14 14 0 1 0 14 14A14 14 0 0 0 16 2zm0 26a12 12 0 1 1 12-12 12 12 0 0 1-12 12z"/><path d="M16 8a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 3 0v-7A1.5 1.5 0 0 0 16 8z"/><circle cx="16" cy="20" r="1.5"/></svg>',
+}
 const t = computed(() => messages[state.lang])
 const title = computed(() => t.value.views[state.view])
 const subtitle = computed(() => t.value.subtitles[state.view])
@@ -488,7 +500,12 @@ const candidateTemplates = computed(() => {
   return state.templates.filter((template) => template.tool === tool.type || recommended.has(template.id))
 })
 const hasToolTemplate = computed(() => candidateTemplates.value.length > 0)
-const tenantTemplates = computed(() => state.templates.filter((template) => template.id === 'argocd-static-tenant' || template.id === 'argocd-dynamic-tenant'))
+const tenantTemplates = computed(() => state.templates.filter((template) => {
+  return template.id === 'argocd-static-tenant'
+    || template.id === 'argocd-dynamic-tenant'
+    || template.id === 'jenkins-agent-manager'
+    || template.id === 'prometheus-namespace-reader'
+}))
 const selectedTemplate = computed(() => state.templates.find((template) => template.id === state.selectedTemplateId) || null)
 const selectedTemplateParams = computed(() => selectedTemplate.value?.params || [])
 const canAdmin = computed(() => state.me?.role === 'platform-admin')
@@ -777,9 +794,15 @@ function chooseTenantTemplate(templateId: string) {
   const template = state.templates.find((item) => item.id === templateId)
   if (!template) return
   for (const key of Object.keys(params)) params[key] = ''
-  params.namespace = argoControllerTool.value?.namespace || ''
-  params.controllerServiceAccount = argoControllerTool.value?.serviceAccount || ''
-  params.serviceAccount = ''
+  if (templateId.startsWith('argocd-')) {
+    params.namespace = argoControllerTool.value?.namespace || ''
+    params.controllerServiceAccount = argoControllerTool.value?.serviceAccount || ''
+  }
+  if (templateId === 'jenkins-agent-manager') {
+    params.serviceAccount = 'jenkins'
+  } else if (templateId === 'prometheus-namespace-reader') {
+    params.serviceAccount = 'prometheus'
+  }
   params.targetNamespace = ''
   params.tenant = ''
   params.namespacePattern = ''
@@ -1079,6 +1102,7 @@ onMounted(refresh)
       <div class="brand">{{ t.brand }}</div>
       <nav>
         <button v-for="view in views" :key="view" class="nav" :class="{ active: state.view === view }" @click="state.view = view">
+          <span class="nav-icon" v-html="navIcons[view]"></span>
           {{ t.views[view] }}
         </button>
       </nav>

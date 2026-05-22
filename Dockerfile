@@ -20,7 +20,7 @@ RUN adduser -D -H -u 10001 app
 WORKDIR /app
 COPY --from=backend /out/rbac-manager /app/rbac-manager
 COPY --from=frontend /src/web/dist /app/web/dist
-USER app
+USER 10001
 EXPOSE 8080
 ENV ADDR=:8080
 CMD ["/app/rbac-manager"]
