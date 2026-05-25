@@ -252,6 +252,7 @@ rbacBindings:
         clusterRole: argocd-static-tenant
   # impersonation: argocd-application-controller syncs as tenant SA
   # argocd-cm must set: application.sync.impersonation.enabled: "true"
+`
 
 const argocdDynamicTenantSyncRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
@@ -270,6 +271,7 @@ rbacBindings:
         clusterRole: argocd-dynamic-tenant
   # impersonation: argocd-application-controller syncs as tenant SA
   # argocd-cm must set: application.sync.impersonation.enabled: "true"
+`
 
 const argocdControllerReadClusterRole = `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

@@ -5,6 +5,10 @@ import ToolList from './components/ToolList.vue'
 import GovernancePanel from './components/GovernancePanel.vue'
 import TenantPanel from './components/TenantPanel.vue'
 import TemplatePanel from './components/TemplatePanel.vue'
+import MyPermissions from './components/MyPermissions.vue'
+import RequestForm from './components/PermissionRequest.vue'
+import PermissionAdmin from './components/PermissionAdmin.vue'
+import type { PermissionRequest } from './components/MyPermissions.vue'
 
 export type Cluster = { id: string; name: string; context: string; apiServer: string; status: string; message: string; rbacManagerStatus: string; lastScanAt?: string }
 export type Finding = { id: string; severity: 'high' | 'medium' | 'low'; title: string; description: string; resource: string; ruleId: string }
@@ -24,7 +28,7 @@ export type Lang = 'zh' | 'en'
 const messages = {
   en: {
     brand: 'RBAC Governance',
-    views: { clusters: 'Clusters', tools: 'Tools', tenants: 'Tenants', templates: 'Templates', plans: 'Plans', audit: 'Audit' },
+    views: { clusters: 'Clusters', tools: 'Tools', tenants: 'Tenants', templates: 'Templates', plans: 'Plans', audit: 'Audit', 'my-permissions': 'My Permissions', 'request-permission': 'Request', 'approval-queue': 'Approval' },
     subtitles: {
       clusters: 'Import clusters, test connectivity, and run permission scans.',
       tools: 'Inspect detected tools, ServiceAccounts, and risky Kubernetes RBAC findings.',
@@ -32,6 +36,9 @@ const messages = {
       templates: 'Review built-in permission templates. Built-ins are versioned with the codebase.',
       plans: 'Review generated change plans and apply them to clusters after confirmation.',
       audit: 'Trace cluster imports, scans, plan creation, apply operations, and rollbacks.',
+      'my-permissions': 'Review your current namespace and tool access, and request history.',
+      'request-permission': 'Apply for new namespace or tool permissions.',
+      'approval-queue': 'Approve, reject, or revoke permission requests.',
     },
     refresh: 'Refresh',
     currentUser: 'Current user',
@@ -224,7 +231,7 @@ const messages = {
   },
   zh: {
     brand: 'RBAC 权限治理',
-    views: { clusters: '集群', tools: '工具', tenants: '租户', templates: '模板', plans: '计划', audit: '审计' },
+    views: { clusters: '集群', tools: '工具', tenants: '租户', templates: '模板', plans: '计划', audit: '审计', 'my-permissions': '我的权限', 'request-permission': '申请权限', 'approval-queue': '权限审批' },
     subtitles: {
       clusters: '导入集群、测试连通性，并执行权限扫描。',
       tools: '查看已发现工具、ServiceAccount 和高风险 Kubernetes RBAC。',
@@ -232,6 +239,9 @@ const messages = {
       templates: '查看内置权限模板。内置模板随代码版本发布。',
       plans: '确认变更计划后再应用到目标集群。',
       audit: '追踪集群导入、扫描、计划创建、应用和回滚操作。',
+      'my-permissions': '查看当前命名空间及工具访问权限，以及历史申请记录。',
+      'request-permission': '申请新的命名空间或工具权限。',
+      'approval-queue': '批准、驳回或撤销权限申请。',
     },
     refresh: '刷新',
     currentUser: '当前用户',
@@ -424,7 +434,7 @@ const messages = {
   },
 } as const
 
-const views = ['clusters', 'tools', 'tenants', 'templates', 'plans', 'audit'] as const
+const views = ['clusters', 'tools', 'tenants', 'templates', 'plans', 'audit', 'my-permissions', 'request-permission', 'approval-queue'] as const
 type View = (typeof views)[number]
 
 const state = reactive({
@@ -435,6 +445,7 @@ const state = reactive({
   templates: [] as Template[],
   plans: [] as Plan[],
   audit: [] as AuditEvent[],
+  permissionRequests: [] as PermissionRequest[],
   me: null as Me | null,
   tenants: [] as Tenant[],
   selectedClusterId: '',
@@ -487,6 +498,9 @@ const navIcons: Record<string, string> = {
   templates: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M24 4H8a2 2 0 0 0-2 2v20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM8 26V6h16v20H8z"/><path d="M12 10h8v2h-8zm0 4h8v2h-8zm0 4h5v2h-5z"/></svg>',
   plans: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M28 6H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h24a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zM4 24V8h24v16H4z"/><path d="M10 12h12v2H10zm0 4h8v2h-8zm0 4h5v2h-5z"/></svg>',
   audit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M16 2a14 14 0 1 0 14 14A14 14 0 0 0 16 2zm0 26a12 12 0 1 1 12-12 12 12 0 0 1-12 12z"/><path d="M16 8a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 3 0v-7A1.5 1.5 0 0 0 16 8z"/><circle cx="16" cy="20" r="1.5"/></svg>',
+  'my-permissions': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M14 2H4a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm0 26H4V4h10v24z"/><path d="M28 10H20v2h8zm0 4H20v2h8zm0 4H20v2h8zm-6 4h-2v2h2z"/><path d="M8 8h4v2H8zm0 4h4v2H8zm0 4h4v2H8zm0 4h4v2H8z"/></svg>',
+  'request-permission': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M16 2a14 14 0 1 0 14 14A14 14 0 0 0 16 2zm0 26a12 12 0 1 1 12-12 12 12 0 0 1-12 12z"/><path d="M17 9h-2v8H9v2h6v6h2v-6h6v-2h-6V9z"/></svg>',
+  'approval-queue': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="16" height="16" fill="currentColor"><path d="M28 6H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h24a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zM4 24V8h24v16H4z"/><path d="M10 12h5v2h-5zm0 4h12v2H10zm0 4h8v2h-8z"/><path d="M22 11l-1.5 1.5L23 15l3.5-3.5L25 10l-2 2z"/></svg>',
 }
 const t = computed(() => messages[state.lang])
 const title = computed(() => t.value.views[state.view])
@@ -513,6 +527,7 @@ const tenantTemplates = computed(() => state.templates.filter((template) => {
 const selectedTemplate = computed(() => state.templates.find((template) => template.id === state.selectedTemplateId) || null)
 const selectedTemplateParams = computed(() => selectedTemplate.value?.params || [])
 const canAdmin = computed(() => state.me?.role === 'platform-admin')
+const visibleViews = computed(() => views.filter(v => v !== 'approval-queue' || canAdmin.value))
 const scopeText = computed(() => t.value.scopeText as Record<string, string>)
 const countSuffix = computed(() => t.value.countSuffix || '')
 const previewTemplateObject = computed(() => state.templates.find((template) => template.id === state.previewTemplateId) || null)
@@ -536,21 +551,66 @@ async function refresh() {
   try {
     state.me = await api<Me>('/api/me')
     if (canAdmin.value) state.tenants = await api<Tenant[]>('/api/tenants')
-    const [clusters, templates, plans, audit] = await Promise.all([
+    const [clusters, templates, plans, audit, permissionRequests] = await Promise.all([
       api<Cluster[]>('/api/clusters'),
       api<Template[]>('/api/templates'),
       api<Plan[]>('/api/plans'),
       api<AuditEvent[]>('/api/audit-events'),
+      api<PermissionRequest[]>('/api/permission-requests'),
     ])
     state.clusters = clusters
     state.templates = templates
     state.plans = plans
     state.audit = audit
+    state.permissionRequests = permissionRequests
     if (!state.selectedClusterId && clusters[0]) state.selectedClusterId = clusters[0].id
     if (state.selectedClusterId) state.tools = await api<Tool[]>(`/api/clusters/${state.selectedClusterId}/tools`)
   } catch (error) {
     setError(error)
   }
+}
+
+async function refreshPermissions() {
+  try {
+    state.permissionRequests = await api<PermissionRequest[]>('/api/permission-requests')
+  } catch (error) {
+    setError(error)
+  }
+}
+
+async function submitPermissionRequest(req: { templateId: string; clusterId: string; params: Record<string, string>; reason: string }) {
+  await run(async () => {
+    await api<PermissionRequest>('/api/permission-requests', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+    await refreshPermissions()
+    state.view = 'my-permissions'
+  })
+}
+
+async function approvePermissionRequest(id: string) {
+  await run(async () => {
+    await api<PermissionRequest>(`/api/permission-requests/${id}/approve`, { method: 'POST' })
+    await refreshPermissions()
+  })
+}
+
+async function rejectPermissionRequest(id: string) {
+  await run(async () => {
+    await api<PermissionRequest>(`/api/permission-requests/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ rejectReason: 'rejected by admin' }),
+    })
+    await refreshPermissions()
+  })
+}
+
+async function revokePermissionRequest(id: string) {
+  await run(async () => {
+    await api<PermissionRequest>(`/api/permission-requests/${id}/revoke`, { method: 'POST' })
+    await refreshPermissions()
+  })
 }
 
 async function importCluster() {
@@ -1109,7 +1169,7 @@ onMounted(refresh)
     <aside>
       <div class="brand">{{ t.brand }}</div>
       <nav>
-        <button v-for="view in views" :key="view" class="nav" :class="{ active: state.view === view }" @click="state.view = view">
+        <button v-for="view in visibleViews" :key="view" class="nav" :class="{ active: state.view === view }" @click="state.view = view">
           <span class="nav-icon" v-html="navIcons[view]"></span>
           {{ t.views[view] }}
         </button>
@@ -1268,7 +1328,35 @@ onMounted(refresh)
         <div v-if="!state.plans.length" class="empty">{{ t.noPlans }}</div>
       </section>
 
-      <section v-else class="panel">
+      <MyPermissions
+        v-else-if="state.view === 'my-permissions'"
+        :lang="state.lang"
+        :current-user="state.me || {id:'',name:'',role:''}"
+        :templates="state.templates"
+        :permission-requests="state.permissionRequests"
+        @navigate-request="state.view = 'request-permission'"
+      />
+
+      <RequestForm
+        v-else-if="state.view === 'request-permission'"
+        :lang="state.lang"
+        :clusters="state.clusters"
+        :templates="state.templates"
+        @submit-request="submitPermissionRequest"
+      />
+
+      <PermissionAdmin
+        v-else-if="state.view === 'approval-queue'"
+        :lang="state.lang"
+        :is-admin="canAdmin"
+        :permission-requests="state.permissionRequests"
+        @refresh="refreshPermissions"
+        @approve-request="approvePermissionRequest"
+        @reject-request="(id) => rejectPermissionRequest(id)"
+        @revoke-request="revokePermissionRequest"
+      />
+
+      <section v-else-if="state.view === 'audit'" class="panel">
         <table class="table">
           <thead><tr><th>{{ t.time }}</th><th>{{ t.action }}</th><th>{{ t.status }}</th><th>{{ t.cluster }}</th><th>{{ t.message }}</th></tr></thead>
           <tbody>

@@ -63,6 +63,13 @@ func (s *Server) Routes() http.Handler {
 	r.POST("/api/plans/:id/apply", wrapWithID(s.handleApplyPlan))
 	r.POST("/api/plans/:id/rollback", wrapWithID(s.handleRollbackPlan))
 	r.GET("/api/audit-events", wrap(s.handleListAudit))
+	r.GET("/api/me/permissions", wrap(s.handleMyPermissions))
+	r.GET("/api/permission-requests", wrap(s.handleListPermissionRequests))
+	r.POST("/api/permission-requests", wrap(s.handleCreatePermissionRequest))
+	r.GET("/api/permission-requests/:id", wrapWithID(s.handleGetPermissionRequest))
+	r.POST("/api/permission-requests/:id/approve", wrapWithID(s.handleApprovePermissionRequest))
+	r.POST("/api/permission-requests/:id/reject", wrapWithID(s.handleRejectPermissionRequest))
+	r.POST("/api/permission-requests/:id/revoke", wrapWithID(s.handleRevokePermissionRequest))
 
 	r.StaticFile("/", filepath.Join(frontendDist(), "index.html"))
 	r.StaticFile("/index.html", filepath.Join(frontendDist(), "index.html"))

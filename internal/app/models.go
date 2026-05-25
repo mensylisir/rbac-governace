@@ -158,6 +158,56 @@ type ResourceSnapshot struct {
 	Exists     bool   `json:"exists"`
 }
 
+type PermissionRequest struct {
+	ID           string            `json:"id"`
+	RequesterID  string            `json:"requesterId"`
+	TemplateID   string            `json:"templateId"`
+	Params       map[string]string `json:"params"`
+	Reason       string            `json:"reason"`
+	RiskLevel    string            `json:"riskLevel"`
+	Status       string            `json:"status"`
+	ApproverID   string            `json:"approverId,omitempty"`
+	PlanID       string            `json:"planId,omitempty"`
+	ClusterID    string            `json:"clusterId"`
+	RejectReason string            `json:"rejectReason,omitempty"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	ResolvedAt   time.Time         `json:"resolvedAt,omitempty"`
+}
+
+type MyPermissionView struct {
+	User       UserView         `json:"user"`
+	Namespaces []NamespacePermission `json:"namespaces"`
+	Tools      []ToolPermission `json:"tools"`
+	Requests   []PermissionRequest `json:"requests"`
+}
+
+type UserView struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Groups []string `json:"groups"`
+}
+
+type NamespacePermission struct {
+	Name      string `json:"name"`
+	Access    string `json:"access"`
+	Resources []string `json:"resources"`
+	Source    PermissionSource `json:"source"`
+}
+
+type ToolPermission struct {
+	Tool        string `json:"tool"`
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace,omitempty"`
+	Permissions []string `json:"permissions"`
+	Source      PermissionSource `json:"source"`
+}
+
+type PermissionSource struct {
+	TemplateID  string    `json:"templateId"`
+	RequestedAt time.Time `json:"requestedAt"`
+	ApproverID  string    `json:"approverId,omitempty"`
+}
+
 type AuditEvent struct {
 	ID        string    `json:"id"`
 	Action    string    `json:"action"`

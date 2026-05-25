@@ -13,16 +13,17 @@ import (
 )
 
 type Store struct {
-	mu        sync.RWMutex
-	path      string
-	tenants   map[string]Tenant
-	users     map[string]User
-	profiles  map[string]ToolProfile
-	templates map[string]Template
-	clusters  map[string]Cluster
-	tools     map[string]ToolInstance
-	plans     map[string]Plan
-	audit     []AuditEvent
+	mu                 sync.RWMutex
+	path               string
+	tenants            map[string]Tenant
+	users              map[string]User
+	profiles           map[string]ToolProfile
+	templates          map[string]Template
+	clusters           map[string]Cluster
+	tools              map[string]ToolInstance
+	plans              map[string]Plan
+	permissionRequests map[string]PermissionRequest
+	audit              []AuditEvent
 }
 
 func NewStore() *Store {
@@ -31,14 +32,15 @@ func NewStore() *Store {
 		path = "data/state.json"
 	}
 	s := &Store{
-		path:      path,
-		tenants:   map[string]Tenant{},
-		users:     map[string]User{},
-		profiles:  map[string]ToolProfile{},
-		templates: map[string]Template{},
-		clusters:  map[string]Cluster{},
-		tools:     map[string]ToolInstance{},
-		plans:     map[string]Plan{},
+		path:               path,
+		tenants:            map[string]Tenant{},
+		users:              map[string]User{},
+		profiles:           map[string]ToolProfile{},
+		templates:          map[string]Template{},
+		clusters:           map[string]Cluster{},
+		tools:              map[string]ToolInstance{},
+		plans:              map[string]Plan{},
+		permissionRequests: map[string]PermissionRequest{},
 	}
 	if err := s.load(); err != nil && !os.IsNotExist(err) {
 		log.Printf("load state: %v", err)
@@ -287,6 +289,64 @@ func (s *Store) ListPlans() []Plan {
 	return out
 }
 
+func (s *Store) PutPermissionRequest(pr PermissionRequest) PermissionRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if pr.ID == "" {
+		pr.ID = newID("req")
+	}
+	if pr.CreatedAt.IsZero() {
+		pr.CreatedAt = time.Now()
+	}
+	s.permissionRequests[pr.ID] = pr
+	s.saveLocked()
+	return pr
+}
+
+func (s *Store) GetPermissionRequest(id string) (PermissionRequest, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	pr, ok := s.permissionRequests[id]
+	return pr, ok
+}
+
+func (s *Store) ListPermissionRequests() []PermissionRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]PermissionRequest, 0, len(s.permissionRequests))
+	for _, pr := range s.permissionRequests {
+		out = append(out, pr)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func (s *Store) ListPermissionRequestsByRequester(requesterID string) []PermissionRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]PermissionRequest, 0)
+	for _, pr := range s.permissionRequests {
+		if pr.RequesterID == requesterID {
+			out = append(out, pr)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func (s *Store) ListPendingPermissionRequests() []PermissionRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]PermissionRequest, 0)
+	for _, pr := range s.permissionRequests {
+		if pr.Status == "pending" {
+			out = append(out, pr)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
 func (s *Store) AddAudit(e AuditEvent) AuditEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -310,14 +370,15 @@ func (s *Store) ListAudit() []AuditEvent {
 }
 
 type storeSnapshot struct {
-	Tenants   map[string]Tenant       `json:"tenants"`
-	Users     map[string]User         `json:"users"`
-	Profiles  map[string]ToolProfile  `json:"profiles"`
-	Templates map[string]Template     `json:"templates"`
-	Clusters  map[string]Cluster      `json:"clusters"`
-	Tools     map[string]ToolInstance `json:"tools"`
-	Plans     map[string]Plan         `json:"plans"`
-	Audit     []AuditEvent            `json:"audit"`
+	Tenants              map[string]Tenant              `json:"tenants"`
+	Users                map[string]User                `json:"users"`
+	Profiles             map[string]ToolProfile         `json:"profiles"`
+	Templates            map[string]Template            `json:"templates"`
+	Clusters             map[string]Cluster             `json:"clusters"`
+	Tools                map[string]ToolInstance        `json:"tools"`
+	Plans                map[string]Plan                `json:"plans"`
+	PermissionRequests   map[string]PermissionRequest   `json:"permissionRequests"`
+	Audit                []AuditEvent                   `json:"audit"`
 }
 
 func (s *Store) load() error {
@@ -350,6 +411,9 @@ func (s *Store) load() error {
 	if snapshot.Plans != nil {
 		s.plans = snapshot.Plans
 	}
+	if snapshot.PermissionRequests != nil {
+		s.permissionRequests = snapshot.PermissionRequests
+	}
 	if snapshot.Audit != nil {
 		s.audit = snapshot.Audit
 	}
@@ -364,7 +428,7 @@ func (s *Store) saveLocked() {
 		log.Printf("create state dir: %v", err)
 		return
 	}
-	snapshot := storeSnapshot{Tenants: s.tenants, Users: s.users, Profiles: s.profiles, Templates: s.templates, Clusters: s.clusters, Tools: s.tools, Plans: s.plans, Audit: s.audit}
+	snapshot := storeSnapshot{Tenants: s.tenants, Users: s.users, Profiles: s.profiles, Templates: s.templates, Clusters: s.clusters, Tools: s.tools, Plans: s.plans, PermissionRequests: s.permissionRequests, Audit: s.audit}
 	b, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		log.Printf("marshal state: %v", err)
