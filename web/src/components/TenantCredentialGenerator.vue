@@ -33,10 +33,10 @@ function formatTime(value?: string) {
       </div>
     </div>
     <div class="grid two">
-      <label>{{ t.credentialNamespace }} <input :value="credentialNamespace" @input="emit('update:credentialNamespace', ($event.target as HTMLInputElement).value)" placeholder="team-a" /></label>
-      <label>{{ t.credentialServiceAccount }} <input :value="credentialServiceAccount" @input="emit('update:credentialServiceAccount', ($event.target as HTMLInputElement).value)" placeholder="team-a-deployer" /></label>
-      <label>{{ t.credentialExpiration }} <input :value="credentialExpiration" type="number" min="600" max="86400" step="600" @input="emit('update:credentialExpiration', Number(($event.target as HTMLInputElement).value))" /></label>
-      <label>{{ t.credentialFormat }}
+      <label><span class="field-label">{{ t.credentialNamespace }}</span><input :value="credentialNamespace" @input="emit('update:credentialNamespace', ($event.target as HTMLInputElement).value)" placeholder="team-a" /></label>
+      <label><span class="field-label">{{ t.credentialServiceAccount }}</span><input :value="credentialServiceAccount" @input="emit('update:credentialServiceAccount', ($event.target as HTMLInputElement).value)" placeholder="team-a-deployer" /></label>
+      <label><span class="field-label">{{ t.credentialExpiration }}</span><input :value="credentialExpiration" type="number" min="600" max="86400" step="600" @input="emit('update:credentialExpiration', Number(($event.target as HTMLInputElement).value))" /></label>
+      <label><span class="field-label">{{ t.credentialFormat }}</span>
         <select :value="credentialFormat" @change="emit('update:credentialFormat', ($event.target as HTMLSelectElement).value)">
           <option value="kubeconfig">kubeconfig</option>
           <option value="token">token</option>

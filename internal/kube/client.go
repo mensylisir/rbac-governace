@@ -124,7 +124,11 @@ func NewFromKubeconfig(kubeconfig string) (*Client, ClusterInfo, error) {
 		return nil, ClusterInfo{}, fmt.Errorf("build kube config: %w", err)
 	}
 	info := ClusterInfo{APIServer: config.Host, Context: currentContext(loader)}
-	return newClient(config, info), info, nil
+	client, err := newClient(config, info)
+	if err != nil {
+		return nil, ClusterInfo{}, err
+	}
+	return client, info, nil
 }
 
 func NewInCluster() (*Client, ClusterInfo, error) {
@@ -133,19 +137,29 @@ func NewInCluster() (*Client, ClusterInfo, error) {
 		return nil, ClusterInfo{}, fmt.Errorf("build in-cluster config: %w", err)
 	}
 	info := ClusterInfo{APIServer: config.Host, Context: "in-cluster"}
-	return newClient(config, info), info, nil
+	client, err := newClient(config, info)
+	if err != nil {
+		return nil, ClusterInfo{}, err
+	}
+	return client, info, nil
 }
 
-func newClient(config *rest.Config, info ClusterInfo) *Client {
+func newClient(config *rest.Config, info ClusterInfo) (*Client, error) {
 	config.Timeout = 20 * time.Second
-	cs := kubernetes.NewForConfigOrDie(config)
-	dyn := dynamic.NewForConfigOrDie(config)
+	cs, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("create clientset: %w", err)
+	}
+	dyn, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("create dynamic client: %w", err)
+	}
 	return &Client{
 		Config:    config,
 		Clientset: cs,
 		Dynamic:   dyn,
 		Discovery: cs.Discovery(),
-	}
+	}, nil
 }
 
 func currentContext(cfg *api.Config) string {
@@ -532,6 +546,13 @@ func (c *Client) RestoreSnapshots(ctx context.Context, snapshots []ObjectSnapsho
 		objects, err := DecodeYAML(snapshot.YAML)
 		if err != nil {
 			return err
+		}
+		for i := range objects {
+			unstructured.RemoveNestedField(objects[i].Object, "metadata", "managedFields")
+			unstructured.RemoveNestedField(objects[i].Object, "metadata", "resourceVersion")
+			unstructured.RemoveNestedField(objects[i].Object, "metadata", "creationTimestamp")
+			unstructured.RemoveNestedField(objects[i].Object, "metadata", "uid")
+			unstructured.RemoveNestedField(objects[i].Object, "status")
 		}
 		if err := c.ApplyYAML(ctx, objects); err != nil {
 			return err

@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'template-change': []
+  'template-change': [name?: string, value?: string]
   'preview': []
   'create-plan': []
   'quick-credential': [tool: Tool]
@@ -69,7 +69,7 @@ function warningLabel(value: string) {
       </div>
       <label>
         {{ t.template }}
-        <select :value="selectedTemplateId" @change="emit('template-change')">
+        <select :value="selectedTemplateId" @change="emit('template-change', 'templateId', ($event.target as HTMLSelectElement).value)">
           <option v-if="!hasToolTemplate" value="">{{ t.noTemplatesForTool }}</option>
           <option v-for="template in candidateTemplates" :key="template.id" :value="template.id">
             {{ localizedTemplateName(template) }}
@@ -80,8 +80,8 @@ function warningLabel(value: string) {
         <div class="subsection-title">{{ t.templateParameters }}</div>
         <div class="grid two">
           <label v-for="param in selectedTemplateParams" :key="param.name">
-            {{ localizedParamLabel(param) }}
-            <input :value="params[param.name]" @input="emit('template-change')" />
+            <span class="field-label">{{ localizedParamLabel(param) }}</span>
+            <input :value="params[param.name]" @input="emit('template-change', param.name, ($event.target as HTMLInputElement).value)" />
           </label>
         </div>
       </div>

@@ -338,7 +338,7 @@ func (s *Server) handleScanCluster(w http.ResponseWriter, r *http.Request) {
 		if !isGovernableWorkload(ref, findings, recommendations) {
 			continue
 		}
-		toolID := ref.Type + "-" + ref.Namespace + "-" + ref.Name
+		toolID := c.ID + "-" + ref.Type + "-" + ref.Namespace + "-" + ref.Name
 		govState := ComputeGovernanceState(toolID, c.ID, findings, s.store.ListPlans())
 		baselineMatched := CompareBaseline(rules, recommendations, s.templates, map[string]string{
 			"namespace":              ref.Namespace,
@@ -614,6 +614,10 @@ func (s *Server) handleApplyPlan(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusNotFound, errors.New("plan not found"))
 		return
 	}
+	if p.Status == "applied" || p.Status == "rolled-back" {
+		httpError(w, http.StatusConflict, errors.New("plan has already been applied or rolled back"))
+		return
+	}
 	c, client, ok := s.clientForCluster(w, r, p.ClusterID)
 	if !ok {
 		return
@@ -830,7 +834,6 @@ users:
 }
 
 func readJSON(r *http.Request, v any) error {
-	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(v)
 }
 

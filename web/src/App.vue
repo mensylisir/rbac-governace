@@ -56,6 +56,8 @@ const messages = {
     tenantLabelKey: 'Namespace label key',
     tenantLabelValue: 'Namespace label value',
     sourceRepo: 'Allowed source repository',
+    adminGroup: 'Tenant Admin Group',
+    adminGroupHint: 'Users in this group will have sync/get permissions on Argo CD Applications in this project.',
     explicitTenantRequired: 'Select a tenant template and fill tenant, SA, and namespace scope explicitly.',
     tenantControllerHint: 'The Argo CD namespace and controller SA are detected from the scanned application-controller workload.',
     tenantSaLocationHint: 'Tenant SA will be created in the Argo CD namespace ({namespace}) for centralized management.',
@@ -254,6 +256,8 @@ const messages = {
     tenantLabelKey: '命名空间标签键',
     tenantLabelValue: '命名空间标签值',
     sourceRepo: '允许的 Git 仓库',
+    adminGroup: '租户管理员组',
+    adminGroupHint: '该组成员将拥有此项目下 Argo CD Application 的同步/查看权限。',
     explicitTenantRequired: '请选择租户模板，并显式填写租户、SA 和命名空间范围。',
     tenantControllerHint: 'Argo CD 命名空间和 controller SA 会从扫描到的 application-controller 工作负载自动获取。',
     tenantSaLocationHint: '租户 SA 将创建在 Argo CD 命名空间（{namespace}）中，便于集中管理。',
@@ -572,10 +576,8 @@ async function testCluster(id: string) {
 
 async function scanCluster(id: string) {
   await run(async () => {
-    state.selectedClusterId = id
     state.tools = await api<Tool[]>(`/api/clusters/${id}/scan`, { method: 'POST' })
     await refresh()
-    state.view = 'tools'
   })
 }
 
@@ -834,7 +836,12 @@ function openTemplatePreview(template: Template) {
   state.showTemplatePreview = true
 }
 
-function onTemplateChange() {
+function onTemplateChange(name?: string, value?: string) {
+  if (name === 'templateId' && value) {
+    state.selectedTemplateId = value
+  } else if (name && value !== undefined) {
+    params[name] = value
+  }
   applyTemplateDefaults()
   state.renderedYaml = ''
   state.warnings = []
@@ -988,6 +995,7 @@ function localizedParamLabel(param: { name: string; label: string }) {
       tenantLabelKey: '命名空间标签键',
       tenantLabelValue: '命名空间标签值',
       sourceRepo: '允许的 Git 仓库',
+      adminGroup: '租户管理员组',
     },
   }
   return labels[state.lang][param.name] || param.label || param.name
@@ -1306,14 +1314,14 @@ onMounted(refresh)
               <label>{{ t.name }} <input v-model="state.customTemplate.name" /></label>
               <label>{{ t.message }} <input v-model="state.customTemplate.description" /></label>
               <div class="grid two">
-                <label>{{ t.scope }}
+                <label><span class="field-label">{{ t.scope }}</span>
                   <select v-model="state.customTemplate.scope">
                     <option value="namespace">{{ scopeText.namespace }}</option>
                     <option value="cluster">{{ scopeText.cluster }}</option>
                     <option value="mixed">{{ scopeText.mixed }}</option>
                   </select>
                 </label>
-                <label>{{ t.risk }}
+                <label><span class="field-label">{{ t.risk }}</span>
                   <select v-model="state.customTemplate.riskLevel">
                     <option value="low">{{ severityLabel('low') }}</option>
                     <option value="medium">{{ severityLabel('medium') }}</option>

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"text/template"
 )
 
 type TemplateRegistry struct {
+	mu        sync.RWMutex
 	templates map[string]Template
 }
 
@@ -21,6 +23,8 @@ func NewTemplateRegistry() *TemplateRegistry {
 }
 
 func (r *TemplateRegistry) List() []Template {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]Template, 0, len(r.templates))
 	for _, t := range r.templates {
 		out = append(out, t)
@@ -29,11 +33,15 @@ func (r *TemplateRegistry) List() []Template {
 }
 
 func (r *TemplateRegistry) Get(id string) (Template, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	t, ok := r.templates[id]
 	return t, ok
 }
 
 func (r *TemplateRegistry) Add(t Template) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.templates[t.ID] = t
 }
 

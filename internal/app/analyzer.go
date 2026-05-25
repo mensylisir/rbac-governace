@@ -107,10 +107,10 @@ func argoTenantImpersonationRule(sr kube.SARule) bool {
 	if sr.Binding.Kind != "RoleBinding" || sr.Binding.RoleKind != "Role" {
 		return false
 	}
-	if !hasAny(sr.Rule.Verbs, "impersonate") || !hasAny(sr.Rule.Resources, "serviceaccounts") {
+	if !strings.HasPrefix(sr.Binding.RoleName, "argocd-impersonate-") {
 		return false
 	}
-	return strings.HasPrefix(sr.Binding.RoleName, "argocd-impersonate-")
+	return hasAny(sr.Rule.Verbs, "impersonate")
 }
 
 func ComputeGovernanceState(toolID, clusterID string, findings []Finding, plans []Plan) string {

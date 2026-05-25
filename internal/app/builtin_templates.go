@@ -35,6 +35,7 @@ func builtins() []Template {
 				{Name: "serviceAccount", Label: "Tenant Sync ServiceAccount", Required: true},
 				{Name: "targetNamespace", Label: "Tenant Namespace", Required: true},
 				{Name: "sourceRepo", Label: "Allowed source repository", Required: true, Default: "*"},
+				{Name: "adminGroup", Label: "Tenant Admin Group", Required: false},
 			},
 			Resources: []TemplateResource{
 				{Kind: "ServiceAccount", Template: argocdCentralTenantSyncServiceAccount},
@@ -55,6 +56,7 @@ func builtins() []Template {
 				{Name: "serviceAccount", Label: "Tenant Sync ServiceAccount", Required: true},
 				{Name: "namespacePattern", Label: "Namespace Pattern", Required: true},
 				{Name: "sourceRepo", Label: "Allowed source repository", Required: true, Default: "*"},
+				{Name: "adminGroup", Label: "Tenant Admin Group", Required: false},
 			},
 			Resources: []TemplateResource{
 				{Kind: "ServiceAccount", Template: argocdCentralTenantSyncServiceAccount},
@@ -176,7 +178,16 @@ spec:
     - group: networking.k8s.io
       kind: Ingress
     - group: networking.k8s.io
-      kind: NetworkPolicy`
+      kind: NetworkPolicy
+  roles:
+    - name: admin
+      policies:
+        - p, proj:{{ dns .targetNamespace }}-tenant:admin, applications, *, {{ dns .targetNamespace }}-tenant/*, allow
+        - p, proj:{{ dns .targetNamespace }}-tenant:admin, projects, get, {{ dns .targetNamespace }}-tenant, allow
+{{- if .adminGroup }}
+      groups:
+        - "{{ .adminGroup }}"
+{{- end }}`
 
 const argocdDynamicTenantAppProject = `apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -215,7 +226,16 @@ spec:
     - group: networking.k8s.io
       kind: Ingress
     - group: networking.k8s.io
-      kind: NetworkPolicy`
+      kind: NetworkPolicy
+  roles:
+    - name: admin
+      policies:
+        - p, proj:{{ dns .serviceAccount }}-tenant:admin, applications, *, {{ dns .serviceAccount }}-tenant/*, allow
+        - p, proj:{{ dns .serviceAccount }}-tenant:admin, projects, get, {{ dns .serviceAccount }}-tenant, allow
+{{- if .adminGroup }}
+      groups:
+        - "{{ .adminGroup }}"
+{{- end }}`
 
 const argocdTenantSyncRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
@@ -229,7 +249,9 @@ rbacBindings:
         namespace: {{ .namespace }}
     roleBindings:
       - namespace: {{ .targetNamespace }}
-        clusterRole: argocd-static-tenant`
+        clusterRole: argocd-static-tenant
+  # impersonation: argocd-application-controller syncs as tenant SA
+  # argocd-cm must set: application.sync.impersonation.enabled: "true"
 
 const argocdDynamicTenantSyncRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition
@@ -245,7 +267,9 @@ rbacBindings:
       - namespaceSelector:
           matchLabels:
             tenant: "{{ .serviceAccount }}"
-        clusterRole: argocd-dynamic-tenant`
+        clusterRole: argocd-dynamic-tenant
+  # impersonation: argocd-application-controller syncs as tenant SA
+  # argocd-cm must set: application.sync.impersonation.enabled: "true"
 
 const argocdControllerReadClusterRole = `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -259,7 +283,10 @@ rules:
     resources: ["*"]
     verbs: ["get", "list", "watch"]
   - nonResourceURLs: ["*"]
-    verbs: ["get"]`
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]`
 
 const argocdControllerReadRBACDefinition = `apiVersion: rbacmanager.reactiveops.io/v1beta1
 kind: RBACDefinition

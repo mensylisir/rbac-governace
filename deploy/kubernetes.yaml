@@ -73,7 +73,7 @@ spec:
       serviceAccountName: rbac-governance
       containers:
         - name: app
-          image: dockerhub.kubekey.local/library/rbac-governance:latest
+          image: rbac-governance:fix
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
