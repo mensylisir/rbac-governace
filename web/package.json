@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.2",
+    "keycloak-js": "^25.0.6",
     "vite": "^7.2.7",
     "vue": "^3.5.25"
   },
@@ -18,4 +19,3 @@
     "vue-tsc": "^3.1.8"
   }
 }
-

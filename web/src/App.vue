@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { initKeycloak, updateToken, getUserId, getUsername, logout } from './keycloak'
 import ClusterPanel from './components/ClusterPanel.vue'
 import ToolList from './components/ToolList.vue'
 import GovernancePanel from './components/GovernancePanel.vue'
@@ -540,7 +541,14 @@ function switchLang(lang: Lang) {
 }
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options })
+  const token = await updateToken(30)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(options.headers || {}) as Record<string, string> }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const response = await fetch(path, { headers, ...options })
+  if (response.status === 401) {
+    logout()
+    throw new Error('Session expired. Please log in again.')
+  }
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(body.error || response.statusText)
   return body as T
@@ -1161,7 +1169,10 @@ function formatTime(value?: string) {
   return new Date(value).toLocaleString()
 }
 
-onMounted(refresh)
+onMounted(async () => {
+  const ok = await initKeycloak()
+  if (ok) await refresh()
+})
 </script>
 
 <template>
@@ -1186,6 +1197,8 @@ onMounted(refresh)
           <button :class="{ primary: state.lang === 'zh' }" @click="switchLang('zh')">中文</button>
           <button :class="{ primary: state.lang === 'en' }" @click="switchLang('en')">EN</button>
           <button :disabled="busy" @click="refresh">{{ t.refresh }}</button>
+          <span v-if="state.me" class="muted" style="font-size:12px">{{ state.me.name }} ({{ state.me.role }})</span>
+          <button class="danger" @click="logout">{{ state.lang === 'zh' ? '登出' : 'Logout' }}</button>
         </div>
       </header>
 
