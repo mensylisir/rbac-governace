@@ -527,8 +527,16 @@ const tenantTemplates = computed(() => state.templates.filter((template) => {
 }))
 const selectedTemplate = computed(() => state.templates.find((template) => template.id === state.selectedTemplateId) || null)
 const selectedTemplateParams = computed(() => selectedTemplate.value?.params || [])
-const canAdmin = computed(() => state.me?.role === 'platform-admin')
-const visibleViews = computed(() => views.filter(v => v !== 'approval-queue' || canAdmin.value))
+const role = computed(() => state.me?.role || 'viewer')
+const canAdmin = computed(() => role.value === 'platform-admin')
+const canApply = computed(() => role.value === 'platform-admin' || role.value === 'tenant-admin')
+const visibleViews = computed((): View[] => {
+  if (role.value === 'platform-admin') return views.slice()
+  if (role.value === 'tenant-admin') {
+    return ['tenants', 'plans', 'audit', 'my-permissions', 'request-permission'] as View[]
+  }
+  return ['my-permissions', 'request-permission'] as View[]
+})
 const scopeText = computed(() => t.value.scopeText as Record<string, string>)
 const countSuffix = computed(() => t.value.countSuffix || '')
 const previewTemplateObject = computed(() => state.templates.find((template) => template.id === state.previewTemplateId) || null)
@@ -1172,6 +1180,9 @@ function formatTime(value?: string) {
 onMounted(async () => {
   const ok = await initKeycloak()
   if (ok) await refresh()
+  if (!visibleViews.value.includes(state.view)) {
+    state.view = 'my-permissions'
+  }
 })
 </script>
 
