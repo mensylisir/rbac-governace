@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,15 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+var httpClient = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: os.Getenv("KEYCLOAK_INSECURE_SKIP_VERIFY") == "true",
+		},
+	},
+	Timeout: 10 * time.Second,
+}
 
 const (
 	RolePlatformAdmin = "platform-admin"
@@ -61,13 +71,20 @@ func (c *jwksCache) get(kid string) (*rsa.PublicKey, error) {
 	}
 	pk = c.keys[kid]
 	if pk == nil {
+		// Fallback: if only one key exists in JWKS, try it anyway
+		// (some Keycloak deployments have kid mismatch between token and JWKS)
+		if len(c.keys) == 1 {
+			for _, v := range c.keys {
+				return v, nil
+			}
+		}
 		return nil, fmt.Errorf("jwks: no key for kid=%s", kid)
 	}
 	return pk, nil
 }
 
 func (c *jwksCache) fetch() error {
-	resp, err := http.Get(keycloakJWKSEndpoint)
+	resp, err := httpClient.Get(keycloakJWKSEndpoint)
 	if err != nil {
 		return err
 	}

@@ -73,13 +73,15 @@ spec:
       serviceAccountName: rbac-governance
       containers:
         - name: app
-          image: rbac-governance:fix
+          image: rbac-governance:production
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
             - name: DATA_FILE
               value: /data/state.json
+            - name: KEYCLOAK_INSECURE_SKIP_VERIFY
+              value: "true"
           volumeMounts:
             - name: data
               mountPath: /data
