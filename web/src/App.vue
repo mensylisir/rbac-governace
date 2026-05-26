@@ -535,6 +535,9 @@ const visibleViews = computed((): View[] => {
   if (role.value === 'tenant-admin') {
     return ['tenants', 'plans', 'audit', 'my-permissions', 'request-permission'] as View[]
   }
+  if (role.value === 'auditor') {
+    return ['clusters', 'audit', 'my-permissions'] as View[]
+  }
   return ['my-permissions', 'request-permission'] as View[]
 })
 const scopeText = computed(() => t.value.scopeText as Record<string, string>)

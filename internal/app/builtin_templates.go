@@ -103,6 +103,48 @@ func builtins() []Template {
 			Scope:       "cluster", RiskLevel: "low", Builtin: true, Params: commonParams,
 			Resources: []TemplateResource{{Kind: "ClusterRole", Template: promtailClusterReader}, {Kind: "RBACDefinition", Template: clusterRBACDefinition("log-collector-reader", "promtail-cluster-metadata-reader")}},
 		},
+		{
+			ID: "argo-cd-self-hosted", Tool: "argocd", Name: "Argo CD 自部署权限",
+			Description: "Grants namespace-scoped admin privileges to deploy and run Argo CD in a dedicated namespace. Includes Argo CD CRD permissions.",
+			Scope: "namespace", RiskLevel: "high", Builtin: true,
+			Params: []TemplateParam{
+				{Name: "namespace", Label: "Namespace", Required: true},
+				{Name: "serviceAccount", Label: "ServiceAccount", Required: true},
+			},
+			Resources: []TemplateResource{
+				{Kind: "ServiceAccount", Template: selfHostedServiceAccount},
+				{Kind: "Role", Template: selfHostedRole("argo-cd-self-hosted", argoCDExtraRules)},
+				{Kind: "RoleBinding", Template: selfHostedRoleBinding("argo-cd-self-hosted")},
+			},
+		},
+		{
+			ID: "prometheus-self-hosted", Tool: "prometheus", Name: "Prometheus 自部署权限",
+			Description: "Grants namespace-scoped admin privileges to deploy and run Prometheus in a dedicated namespace. Includes Prometheus Operator CRD permissions.",
+			Scope: "namespace", RiskLevel: "high", Builtin: true,
+			Params: []TemplateParam{
+				{Name: "namespace", Label: "Namespace", Required: true},
+				{Name: "serviceAccount", Label: "ServiceAccount", Required: true},
+			},
+			Resources: []TemplateResource{
+				{Kind: "ServiceAccount", Template: selfHostedServiceAccount},
+				{Kind: "Role", Template: selfHostedRole("prometheus-self-hosted", prometheusExtraRules)},
+				{Kind: "RoleBinding", Template: selfHostedRoleBinding("prometheus-self-hosted")},
+			},
+		},
+		{
+			ID: "jenkins-self-hosted", Tool: "jenkins", Name: "Jenkins 自部署权限",
+			Description: "Grants namespace-scoped admin privileges to deploy and run Jenkins in a dedicated namespace.",
+			Scope: "namespace", RiskLevel: "high", Builtin: true,
+			Params: []TemplateParam{
+				{Name: "namespace", Label: "Namespace", Required: true},
+				{Name: "serviceAccount", Label: "ServiceAccount", Required: true},
+			},
+			Resources: []TemplateResource{
+				{Kind: "ServiceAccount", Template: selfHostedServiceAccount},
+				{Kind: "Role", Template: selfHostedRole("jenkins-self-hosted", "")},
+				{Kind: "RoleBinding", Template: selfHostedRoleBinding("jenkins-self-hosted")},
+			},
+		},
 	}
 }
 
@@ -453,3 +495,69 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "namespaces", "nodes"]
     verbs: ["get", "list", "watch"]`
+
+const (
+	selfHostedServiceAccount = `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .serviceAccount }}
+  namespace: {{ .namespace }}`
+
+	argoCDExtraRules = `  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "appprojects", "applicationsets"]
+    verbs: ["*"]`
+
+	prometheusExtraRules = `  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors", "podmonitors", "prometheusrules", "alertmanagers", "prometheuses"]
+    verbs: ["*"]`
+)
+
+func selfHostedRole(name, extraRules string) string {
+	role := `apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ` + name + `
+  namespace: {{ .namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status", "pods/exec", "services", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims", "endpoints", "events"]
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["*"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["*"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies", "ingressclasses"]
+    verbs: ["*"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["*"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]`
+	if extraRules != "" {
+		role += "\n" + extraRules
+	}
+	return role
+}
+
+func selfHostedRoleBinding(name string) string {
+	return `apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ` + name + `
+  namespace: {{ .namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .serviceAccount }}
+    namespace: {{ .namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ` + name
+}
